@@ -7,6 +7,9 @@ import {
   ChevronDown,
   ChevronRight,
   HeartHandshake,
+  Landmark,
+  TreePine,
+  Map as LucideMap,
   Mail,
   History,
   LogOut,
@@ -4837,14 +4840,20 @@ function NewProfileForm(props: {
 }) {
   return (
     <div className="stack">
-      <label>
-        {props.t("country")}
-        <div className="segmented">
-          <button type="button" className={props.country === "us" ? "selected" : ""} onClick={() => props.setCountry("us")}>{props.t("countryUnitedStates")}</button>
-          <button type="button" className={props.country === "ca" ? "selected" : ""} onClick={() => props.setCountry("ca")}>{props.t("countryCanada")}</button>
-          <button type="button" className={props.country === "kr" ? "selected" : ""} onClick={() => props.setCountry("kr")}>{props.t("countryKorea")}</button>
-        </div>
-      </label>
+      <div className="country-cards">
+        <button type="button" className={`country-card ${props.country === "us" ? "selected" : ""}`} onClick={() => props.setCountry("us")}>
+          <div className="country-card-icon"><Landmark className="icon" size={24} /></div>
+          <span>{props.t("countryUnitedStates")}</span>
+        </button>
+        <button type="button" className={`country-card ${props.country === "ca" ? "selected" : ""}`} onClick={() => props.setCountry("ca")}>
+          <div className="country-card-icon"><TreePine className="icon" size={24} /></div>
+          <span>{props.t("countryCanada")}</span>
+        </button>
+        <button type="button" className={`country-card ${props.country === "kr" ? "selected" : ""}`} onClick={() => props.setCountry("kr")}>
+          <div className="country-card-icon"><LucideMap className="icon" size={24} /></div>
+          <span>{props.t("countryKorea")}</span>
+        </button>
+      </div>
       {props.country === "us" ? (
         <CaseFormView caseForm={props.caseForm} setCaseForm={props.setCaseForm} saveCase={props.saveCase} isBusy={props.isBusy} t={props.t} languageMode={props.languageMode} />
       ) : props.country === "ca" ? (
