@@ -10,6 +10,8 @@ IDENTIFIER_PATTERN = re.compile(r"^(HAL[A-Z0-9]{6,24}|[A-Z0-9]{6,20})$")
 APPLICATION_PATTERN = re.compile(r"^[A-Z0-9\-_ ]{3,40}$")
 PASSPORT_PATTERN = re.compile(r"^(NA|[A-Z0-9]{3,32})$")
 SURNAME_PATTERN = re.compile(r"^[A-Z]{1,5}$")
+KOREA_ENGLISH_NAME_PATTERN = re.compile(r"^[A-Z][A-Z ]{0,78}[A-Z]$")
+DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 HOST_PATTERN = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$")
 
 
@@ -290,8 +292,88 @@ class IrccCasePatch(SecureModel):
         return IrccApplicationSelection.validateOptionalText(value)
 
 
+class KoreaCaseInput(SecureModel):
+    displayName: str = Field(min_length=1, max_length=80)
+    passportNumber: str = Field(min_length=1)
+    englishName: str = Field(min_length=2, max_length=80)
+    birthDate: str = Field(min_length=10, max_length=10)
+    receiveEmail: EmailStr | None = None
+    senderMode: str = Field(pattern="^(system|custom)$")
+    isEnabled: bool = True
+    emailNotificationsEnabled: bool = True
+    smtpConfig: SmtpConfigInput | None = None
+
+    @field_validator("displayName")
+    @classmethod
+    def validateDisplayName(cls, value: str) -> str:
+        return rejectUnsafeText(value, "档案名称")
+
+    @field_validator("passportNumber")
+    @classmethod
+    def validatePassportNumber(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not PASSPORT_PATTERN.match(normalized):
+            raise ValueError("护照号码格式不支持")
+        return normalized
+
+    @field_validator("englishName")
+    @classmethod
+    def validateEnglishName(cls, value: str) -> str:
+        normalized = " ".join(value.strip().upper().split())
+        if not KOREA_ENGLISH_NAME_PATTERN.match(normalized) or " " not in normalized:
+            raise ValueError("英文姓名请按护照填写，先姓后名，拼音大写，姓名中间留空格")
+        return normalized
+
+    @field_validator("birthDate")
+    @classmethod
+    def validateBirthDate(cls, value: str) -> str:
+        normalized = value.strip()
+        if not DATE_PATTERN.match(normalized):
+            raise ValueError("出生日期格式必须为 YYYY-MM-DD")
+        return normalized
+
+    @field_validator("receiveEmail", mode="before")
+    @classmethod
+    def normalizeReceiveEmail(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+
+class KoreaCasePatch(SecureModel):
+    displayName: str | None = Field(default=None, min_length=1, max_length=80)
+    passportNumber: str | None = None
+    englishName: str | None = Field(default=None, min_length=2, max_length=80)
+    birthDate: str | None = Field(default=None, min_length=10, max_length=10)
+    receiveEmail: EmailStr | None = None
+    senderMode: str | None = Field(default=None, pattern="^(system|custom)$")
+    isEnabled: bool | None = None
+    emailNotificationsEnabled: bool | None = None
+    smtpConfig: SmtpConfigInput | None = None
+
+    @field_validator("displayName")
+    @classmethod
+    def validateDisplayName(cls, value: str | None) -> str | None:
+        return rejectUnsafeText(value, "档案名称") if value is not None else None
+
+    @field_validator("passportNumber")
+    @classmethod
+    def validatePassportNumber(cls, value: str | None) -> str | None:
+        return KoreaCaseInput.validatePassportNumber(value) if value is not None else None
+
+    @field_validator("englishName")
+    @classmethod
+    def validateEnglishName(cls, value: str | None) -> str | None:
+        return KoreaCaseInput.validateEnglishName(value) if value is not None else None
+
+    @field_validator("birthDate")
+    @classmethod
+    def validateBirthDate(cls, value: str | None) -> str | None:
+        return KoreaCaseInput.validateBirthDate(value) if value is not None else None
+
+
 class ProfileOrderItem(SecureModel):
-    profileType: str = Field(pattern="^(ceac|ircc)$")
+    profileType: str = Field(pattern="^(ceac|ircc|korea)$")
     id: int = Field(ge=1)
 
 

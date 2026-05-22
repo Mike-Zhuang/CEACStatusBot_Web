@@ -26,8 +26,8 @@ type ViewMode = "dashboard" | "profile" | "admin";
 type AuthMode = "login" | "register" | "forgot";
 type AccountTier = "standard" | "premium";
 type MessageScope = ViewMode | "auth";
-type ProfileCountry = "us" | "ca";
-type QueryTriggerType = "manual" | "automatic" | "passport_slot_manual" | "passport_slot_automatic" | "ircc_manual" | "ircc_automatic" | "unknown";
+type ProfileCountry = "us" | "ca" | "kr";
+type QueryTriggerType = "manual" | "automatic" | "passport_slot_manual" | "passport_slot_automatic" | "ircc_manual" | "ircc_automatic" | "korea_manual" | "korea_automatic" | "unknown";
 
 interface User {
   id: number;
@@ -100,6 +100,31 @@ interface IrccCase {
   updatedAt: string;
 }
 
+interface KoreaCase {
+  id: number;
+  userId: number;
+  sortOrder: number;
+  displayName: string;
+  passportNumber: string;
+  englishName: string;
+  birthDate: string;
+  receiveEmail: string;
+  senderMode: "system" | "custom";
+  isEnabled: boolean;
+  emailNotificationsEnabled: boolean;
+  nextCheckAt: string | null;
+  lastCheckedAt: string | null;
+  lastTriggerType: "korea_manual" | "korea_automatic" | "unknown" | null;
+  lastSnapshotHash: string;
+  lastApplicationNo: string;
+  lastApplicationDate: string;
+  lastEntryPurpose: string;
+  lastStatus: string;
+  lastErrorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface IrccSnapshot {
   applicationInfo?: Record<string, unknown>;
   appStatus?: Record<string, unknown>;
@@ -108,7 +133,8 @@ interface IrccSnapshot {
 
 type ProfileListItem =
   | { profileType: "ceac"; id: number; sortOrder: number; updatedAt: string; case: CeacCase }
-  | { profileType: "ircc"; id: number; sortOrder: number; updatedAt: string; case: IrccCase };
+  | { profileType: "ircc"; id: number; sortOrder: number; updatedAt: string; case: IrccCase }
+  | { profileType: "korea"; id: number; sortOrder: number; updatedAt: string; case: KoreaCase };
 
 interface IrccHistoryItem {
   id: number;
@@ -120,6 +146,19 @@ interface IrccHistoryItem {
   changeSummary: string;
   fetchedAt: string;
   rawPayload: IrccSnapshot;
+  notificationSent: boolean;
+}
+
+interface KoreaHistoryItem {
+  id: number;
+  caseId: number;
+  snapshotHash: string;
+  applicationNo: string;
+  applicationDate: string;
+  entryPurpose: string;
+  status: string;
+  fetchedAt: string;
+  rawPayload: Record<string, unknown>;
   notificationSent: boolean;
 }
 
@@ -155,7 +194,7 @@ interface QueryRun {
   status: string | null;
   error_message: string;
   duration_ms: number;
-  profile_type?: "ceac" | "ircc" | "passport_slot";
+  profile_type?: "ceac" | "ircc" | "korea" | "passport_slot";
 }
 
 interface AdminQueryJob {
@@ -174,7 +213,7 @@ interface AdminQueryJob {
   started_at: string | null;
   updated_at: string;
   wait_seconds: number;
-  profile_type?: "ceac" | "ircc";
+  profile_type?: "ceac" | "ircc" | "korea";
 }
 
 interface AdminScheduledQueryJob {
@@ -188,7 +227,7 @@ interface AdminScheduledQueryJob {
   trigger_type: QueryTriggerType;
   next_check_at: string;
   seconds_until_queue: number;
-  profile_type?: "ceac" | "ircc";
+  profile_type?: "ceac" | "ircc" | "korea";
 }
 
 interface AdminFinishedQueryJob {
@@ -207,7 +246,7 @@ interface AdminFinishedQueryJob {
   started_at: string | null;
   finished_at: string;
   duration_seconds: number;
-  profile_type?: "ceac" | "ircc";
+  profile_type?: "ceac" | "ircc" | "korea";
 }
 
 interface QueryJob {
@@ -243,6 +282,25 @@ interface IrccQueryJob {
     changed: boolean;
     error: string;
     summary?: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+interface KoreaQueryJob {
+  id: number;
+  caseId: number;
+  triggerType: "korea_manual" | "korea_automatic";
+  status: "queued" | "running" | "succeeded" | "failed";
+  attempts: number;
+  errorMessage: string;
+  result: {
+    success: boolean;
+    changed: boolean;
+    error: string;
+    result?: Record<string, unknown>;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -300,7 +358,7 @@ interface AdminUser {
 }
 
 interface AdminCase extends CeacCase {
-  profileType?: "ceac" | "ircc";
+  profileType?: "ceac" | "ircc" | "korea";
   adminCaseKey?: string;
   appId?: string;
   applicationNumber?: string;
@@ -395,6 +453,22 @@ interface IrccCaseForm {
   smtpPassword: string;
 }
 
+interface KoreaCaseForm {
+  displayName: string;
+  passportNumber: string;
+  englishName: string;
+  birthDate: string;
+  receiveEmail: string;
+  senderMode: "system" | "custom";
+  isEnabled: boolean;
+  emailNotificationsEnabled: boolean;
+  smtpFromEmail: string;
+  smtpHost: string;
+  smtpPort: string;
+  smtpUseSsl: boolean;
+  smtpPassword: string;
+}
+
 const emptyCaseForm: CaseForm = {
   displayName: "",
   location: "CHINA, BEIJING",
@@ -430,12 +504,32 @@ const emptyIrccCaseForm: IrccCaseForm = {
   smtpPassword: "",
 };
 
+const emptyKoreaCaseForm: KoreaCaseForm = {
+  displayName: "",
+  passportNumber: "",
+  englishName: "",
+  birthDate: "",
+  receiveEmail: "",
+  senderMode: "system",
+  isEnabled: true,
+  emailNotificationsEnabled: true,
+  smtpFromEmail: "",
+  smtpHost: "smtp.exmail.qq.com",
+  smtpPort: "465",
+  smtpUseSsl: true,
+  smtpPassword: "",
+};
+
 function createEmptyCaseForm(defaultEmail = ""): CaseForm {
   return { ...emptyCaseForm, receiveEmail: defaultEmail };
 }
 
 function createEmptyIrccCaseForm(defaultEmail = ""): IrccCaseForm {
   return { ...emptyIrccCaseForm, receiveEmail: defaultEmail };
+}
+
+function createEmptyKoreaCaseForm(defaultEmail = ""): KoreaCaseForm {
+  return { ...emptyKoreaCaseForm, receiveEmail: defaultEmail };
 }
 
 const icpRecordNumber = import.meta.env.VITE_ICP_RECORD_NUMBER as string | undefined;
@@ -449,21 +543,21 @@ const legalTerms = {
     {
       title: "1. Nature of Service and Non-official Status",
       body: [
-        "CEACStatusBot is a nonprofit personal project for learning, research, and convenience tooling for the site owner and authorized users. It is not affiliated with, endorsed by, sponsored by, or operated by the U.S. Department of State, CEAC, GTS, CITIC Bank, IRCC, the Government of Canada, any consulate, embassy, visa center, or other official institution.",
+        "CEACStatusBot is a nonprofit personal project for learning, research, and convenience tooling for the site owner and authorized users. It is not affiliated with, endorsed by, sponsored by, or operated by the U.S. Department of State, CEAC, GTS, CITIC Bank, IRCC, Korea Visa Portal, the Government of Canada, the Ministry of Justice of Korea, any consulate, embassy, visa center, or other official institution.",
         "This site does not provide visa agency services, official appointment services, legal services, immigration consulting, paid official processing, automatic booking, slot holding, or slot grabbing.",
       ],
     },
     {
       title: "2. User Authorization and Required Information",
       body: [
-        "By registering, creating a profile, or enabling monitoring, you confirm that you are the data subject or have obtained lawful authorization from the data subject, and you authorize this site to process the information you submit only for CEAC status checking, GTS slot detection, IRCC Portal status checking, email notification, account operation, abuse prevention, security audit, and necessary maintenance.",
-        "You are responsible for the accuracy, legality, and authorization status of Application ID / Case Number, passport number, surname initials, UID/HAL, IRCC Portal credentials, email address, and related information submitted by you.",
+        "By registering, creating a profile, or enabling monitoring, you confirm that you are the data subject or have obtained lawful authorization from the data subject, and you authorize this site to process the information you submit only for CEAC status checking, GTS slot detection, IRCC Portal status checking, Korea Visa Portal status checking, email notification, account operation, abuse prevention, security audit, and necessary maintenance.",
+        "You are responsible for the accuracy, legality, and authorization status of Application ID / Case Number, passport number, surname initials, UID/HAL, IRCC Portal credentials, Korea visa passport number, English name, date of birth, email address, and related information submitted by you.",
       ],
     },
     {
       title: "3. Cross-border Query Authorization",
       body: [
-        "You understand and agree that, to perform CEAC status checks, GTS slot detection, and IRCC Portal status checks, this site may submit necessary profile information, including but not limited to Application ID / Case Number, passport number, surname initials, UID/HAL, IRCC Portal credentials, tokens, appId, and related query parameters, to CEAC, GTS, IRCC Portal, and other official or third-party systems that may be located outside mainland China.",
+        "You understand and agree that, to perform CEAC status checks, GTS slot detection, and IRCC Portal status checks, this site may submit necessary profile information, including but not limited to Application ID / Case Number, passport number, surname initials, UID/HAL, IRCC Portal credentials, Korea visa passport number, English name, date of birth, tokens, appId, and related query parameters, to CEAC, GTS, IRCC Portal, Korea Visa Portal, and other official or third-party systems that may be located outside mainland China.",
         "Such transmission is performed only for the query functions you enable or manually trigger. If you do not agree to this cross-border query processing, do not create a profile, enable monitoring, or use the query features.",
       ],
     },
@@ -485,7 +579,7 @@ const legalTerms = {
       title: "6. Data Protection, Retention, and User Responsibility",
       body: [
         "Sensitive profile fields, UID/HAL, IRCC Portal credentials and tokens, SMTP secrets, and raw query snapshots are encrypted at rest where supported by the application. The site also uses rate limits, session controls, security logs, and other protective measures, but no online system can be guaranteed to be absolutely secure.",
-        "To reduce long-term retention of personal information, if an account has no new CEAC status history, GTS slot-change history, or IRCC status history for about 15 days, the site may send a deletion warning. If there is still no new status or slot activity for about another 15 days, meaning about 30 days in total, the account and related profile data may be automatically deleted.",
+        "To reduce long-term retention of personal information, if an account has no new CEAC status history, GTS slot-change history, or IRCC status history, Korea visa status history for about 15 days, the site may send a deletion warning. If there is still no new status or slot activity for about another 15 days, meaning about 30 days in total, the account and related profile data may be automatically deleted.",
         "You should keep your account password, UID/HAL, passport information, screenshots, emails, and notification content confidential. Do not forward or publicly post emails or screenshots containing personal or passport-related information.",
       ],
     },
@@ -508,21 +602,21 @@ const legalTerms = {
     {
       title: "一、服务性质与非官方声明",
       body: [
-        "CEACStatusBot 是非盈利个人项目，主要用于学习研究，以及为站长和经授权用户提供公开状态查询的便利工具。本站不隶属于美国国务院、CEAC、GTS、中信银行、IRCC、加拿大政府、任何使领馆、签证中心或其他官方机构，也不代表上述机构提供服务。",
+        "CEACStatusBot 是非盈利个人项目，主要用于学习研究，以及为站长和经授权用户提供公开状态查询的便利工具。本站不隶属于美国国务院、CEAC、GTS、中信银行、IRCC、韩国签证门户、加拿大政府、韩国法务部、任何使领馆、签证中心或其他官方机构，也不代表上述机构提供服务。",
         "本站不提供签证代理、官方预约、法律服务、移民咨询、有偿官方代办、自动预约、自动占位或抢 slot 服务。",
       ],
     },
     {
       title: "二、用户授权与必要信息",
       body: [
-        "你注册、创建档案或启用监控，即确认你本人为相关信息主体，或已取得信息主体的合法授权；你授权本站仅为 CEAC 状态查询、GTS slot 检测、IRCC Portal 状态查询、邮件通知、账号管理、防滥用、安全审计和必要维护处理你提交的信息。",
-        "你应自行确保提交的 Application ID / Case Number、护照号、姓氏前几位、UID/HAL、IRCC Portal 凭证、邮箱和其他信息真实、准确、合法且已获授权。",
+        "你注册、创建档案或启用监控，即确认你本人为相关信息主体，或已取得信息主体的合法授权；你授权本站仅为 CEAC 状态查询、GTS slot 检测、IRCC Portal 状态查询、韩国签证门户状态查询、邮件通知、账号管理、防滥用、安全审计和必要维护处理你提交的信息。",
+        "你应自行确保提交的 Application ID / Case Number、护照号、姓氏前几位、UID/HAL、IRCC Portal 凭证、韩国签证护照号、英文姓名、出生日期、邮箱和其他信息真实、准确、合法且已获授权。",
       ],
     },
     {
       title: "三、跨境查询授权",
       body: [
-        "你理解并同意，为执行 CEAC 状态查询、GTS slot 检测和 IRCC Portal 状态查询，本站可能将必要的档案信息，包括但不限于 Application ID / Case Number、护照号、姓氏前几位、UID/HAL、IRCC Portal 凭证、token、appId 及相关查询参数，提交至 CEAC、GTS、IRCC Portal 或其他可能位于中国大陆境外的官方或第三方系统。",
+        "你理解并同意，为执行 CEAC 状态查询、GTS slot 检测和 IRCC Portal 状态查询、韩国签证门户状态查询，本站可能将必要的档案信息，包括但不限于 Application ID / Case Number、护照号、姓氏前几位、UID/HAL、IRCC Portal 凭证、韩国签证护照号、英文姓名、出生日期、token、appId 及相关查询参数，提交至 CEAC、GTS、IRCC Portal、韩国签证门户 或其他可能位于中国大陆境外的官方或第三方系统。",
         "上述传输仅用于你启用或手动触发的查询功能。如果你不同意此类跨境查询处理，请不要创建档案、启用监控或使用查询功能。",
       ],
     },
@@ -544,7 +638,7 @@ const legalTerms = {
       title: "六、数据保护、保留期限与用户责任",
       body: [
         "在应用支持范围内，CEAC 档案敏感字段、UID/HAL、IRCC Portal 凭证和 token、SMTP 密钥和原始查询快照会进行加密存储；本站也会使用限流、会话控制、安全日志等措施降低风险，但任何在线系统都无法承诺绝对安全。",
-        "为减少个人信息长期保存风险，如果账号约 15 天没有新的 CEAC 状态历史、GTS slot 变化历史或 IRCC 状态历史，系统可能发送删除提醒；提醒后约 15 天仍无新的状态或 slot 动态，即总计约 30 天无动态时，系统可能自动删除该账号和相关档案数据。",
+        "为减少个人信息长期保存风险，如果账号约 15 天没有新的 CEAC 状态历史、GTS slot 变化历史或 IRCC 状态历史、韩国签证状态历史，系统可能发送删除提醒；提醒后约 15 天仍无新的状态或 slot 动态，即总计约 30 天无动态时，系统可能自动删除该账号和相关档案数据。",
         "你应妥善保管账号密码、UID/HAL、护照信息、截图、邮件和通知内容，不应转发或公开包含个人信息、护照信息或预约识别信息的邮件和截图。",
       ],
     },
@@ -578,7 +672,7 @@ const translations = {
     accountTierCurrent: "Current tier",
     appSubtitle: "Visa status monitoring, query history, and email delivery.",
     publicNoticeTitle: "Service notice",
-    publicNoticeBody: "CEACStatusBot is a non-official, nonprofit personal project for learning, research, and convenient status checking by the site owner and authorized users. It is not affiliated with the U.S. Department of State, CEAC, GTS, CITIC Bank, IRCC, or the Government of Canada.",
+    publicNoticeBody: "CEACStatusBot is a non-official, nonprofit personal project for learning, research, and convenient status checking by the site owner and authorized users. It is not affiliated with the U.S. Department of State, CEAC, GTS, CITIC Bank, IRCC, Korea Visa Portal, the Government of Canada, or the Ministry of Justice of Korea.",
     publicNoticeDisclaimer: "This site does not provide visa agency services, official appointment services, immigration consulting, automatic booking, slot holding, result guarantees, or any official government or bank service. Query results depend on third-party websites and may be delayed, unavailable, incomplete, or incorrect.",
     acceptTerms: "I have read and agree to the Terms of Use and Disclaimer.",
     termsTitle: "Terms of Use and Disclaimer",
@@ -770,7 +864,7 @@ const translations = {
     supportTitle: "Support this nonprofit project",
     supportBody: "If CEACStatusBot helps you, voluntary support helps cover server and maintenance costs.",
     supportPremium: "Premium upgrade: share a Xiaohongshu post with the site link, screenshots, and your experience, then contact the admin; or leave your account email in the donation note for manual review.",
-    supportDisclaimer: "Non-official service. Not affiliated with the U.S. Department of State, CEAC, GTS, CITIC Bank, IRCC, or the Government of Canada. Donations are voluntary support, not a purchase of official services, and do not guarantee visa results, passport progress, slot availability, or booking success. Do not publicly share screenshots containing UID/HAL/passport/IRCC data.",
+    supportDisclaimer: "Non-official service. Not affiliated with the U.S. Department of State, CEAC, GTS, CITIC Bank, IRCC, Korea Visa Portal, the Government of Canada, or the Ministry of Justice of Korea. Donations are voluntary support, not a purchase of official services, and do not guarantee visa results, passport progress, slot availability, or booking success. Do not publicly share screenshots containing UID/HAL/passport/IRCC/Korea visa data.",
     nonprofitNotice: "Nonprofit personal project",
     contactEmail: "Contact: ceac-admin@mikezhuang.cn",
     sourceCode: "Source code",
@@ -783,6 +877,25 @@ const translations = {
     country: "Country",
     countryUnitedStates: "United States",
     countryCanada: "Canada",
+    countryKorea: "South Korea",
+    koreaVisaTitle: "Korea Visa Portal",
+    koreaQueryHint: "Consular office + passport number query. Enter the English name exactly as on the passport.",
+    koreaEnglishName: "English name",
+    koreaNameHint: "Surname first, given name after it, uppercase pinyin, with a space between names.",
+    koreaBirthDate: "Date of birth",
+    koreaApplicationNo: "Application no.",
+    koreaApplicationDate: "Application date",
+    koreaEntryPurpose: "Entry purpose",
+    koreaSave: "Save Korea profile",
+    koreaQuerying: "Querying Korea Visa Portal. Please wait.",
+    koreaQueued: "Your Korea visa query is queued.",
+    koreaChanged: "Korea visa query completed: status changed.",
+    koreaUnchanged: "Korea visa query completed: status unchanged.",
+    koreaTestEmail: "Test Korea email",
+    koreaTestEmailSending: "Sending Korea visa test email.",
+    koreaTestEmailSent: "Korea visa test email sent.",
+    koreaLastError: "Latest Korea visa issue",
+    koreaNoHistory: "No Korea visa history yet",
     irccAlphaLabel: "Alpha",
     irccPortalTitle: "IRCC Portal monitor",
     irccPortalIntro: "Alpha: only the current IRCC Portal is supported. Use carefully; IRCC Portal - New version and GCKey are planned for the future.",
@@ -821,7 +934,7 @@ const translations = {
     accountTierCurrent: "当前账号等级",
     appSubtitle: "签证状态监控、查询历史与邮件提醒。",
     publicNoticeTitle: "服务说明 / 风险提示",
-    publicNoticeBody: "CEACStatusBot 是非官方、非盈利个人项目，仅用于学习研究，以及方便站长和授权用户查询公开状态。本项目不隶属于美国国务院、CEAC、GTS、中信银行、IRCC 或加拿大政府。",
+    publicNoticeBody: "CEACStatusBot 是非官方、非盈利个人项目，仅用于学习研究，以及方便站长和授权用户查询公开状态。本项目不隶属于美国国务院、CEAC、GTS、中信银行、IRCC、韩国签证门户、加拿大政府或韩国法务部。",
     publicNoticeDisclaimer: "本站不提供签证代理、官方预约、移民咨询、自动抢号、占位、结果保证或任何官方/银行/政府服务。查询结果依赖第三方网站，可能存在延迟、不可用、不完整或错误。",
     acceptTerms: "我已阅读并同意用户条款和免责声明。",
     termsTitle: "用户条款和免责声明",
@@ -1013,7 +1126,7 @@ const translations = {
     supportTitle: "支持这个非盈利项目",
     supportBody: "如果 CEACStatusBot 对你有帮助，欢迎自愿赞赏支持服务器和维护成本。",
     supportPremium: "Premium 升级方式：在小红书发布包含网站链接、使用截图和使用感受的帖子后联系管理员；或赞赏时备注账号邮箱，管理员人工核对后升级。",
-    supportDisclaimer: "本站为非官方服务，不隶属于美国国务院、CEAC、GTS、中信银行、IRCC 或加拿大政府。赞赏是自愿支持，不购买官方服务，不保证签证结果、护照进度、slot 可用性、IRCC 更新或预约成功。请勿公开截图泄露 UID/HAL/护照/IRCC 等个人信息。",
+    supportDisclaimer: "本站为非官方服务，不隶属于美国国务院、CEAC、GTS、中信银行、IRCC、韩国签证门户、加拿大政府或韩国法务部。赞赏是自愿支持，不购买官方服务，不保证签证结果、护照进度、slot 可用性、IRCC 更新或预约成功。请勿公开截图泄露 UID/HAL/护照/IRCC/韩国签证等个人信息。",
     nonprofitNotice: "非盈利个人项目",
     contactEmail: "联系邮箱：ceac-admin@mikezhuang.cn",
     sourceCode: "开源仓库",
@@ -1026,6 +1139,25 @@ const translations = {
     country: "国家",
     countryUnitedStates: "美国",
     countryCanada: "加拿大",
+    countryKorea: "韩国",
+    koreaVisaTitle: "韩国签证查询",
+    koreaQueryHint: "当前支持“驻外使领馆 + 护照号码”查询。英文姓名请按护照填写。",
+    koreaEnglishName: "英文姓名",
+    koreaNameHint: "先姓后名，拼音大写，姓名中间留空格。",
+    koreaBirthDate: "出生日期",
+    koreaApplicationNo: "申请编号",
+    koreaApplicationDate: "申请日期",
+    koreaEntryPurpose: "入境目的",
+    koreaSave: "保存韩国签证档案",
+    koreaQuerying: "正在查询韩国签证门户，请稍候。",
+    koreaQueued: "韩国签证查询已加入队列。",
+    koreaChanged: "韩国签证查询完成：状态已变化。",
+    koreaUnchanged: "韩国签证查询完成：状态未变化。",
+    koreaTestEmail: "测试韩国签证邮件",
+    koreaTestEmailSending: "正在发送韩国签证测试邮件。",
+    koreaTestEmailSent: "韩国签证测试邮件已发送。",
+    koreaLastError: "最近韩国签证问题",
+    koreaNoHistory: "暂无韩国签证历史记录",
     irccAlphaLabel: "Alpha",
     irccPortalTitle: "IRCC Portal 监控",
     irccPortalIntro: "Alpha：当前仅支持 IRCC Portal。请谨慎使用，未经充分测试；未来计划支持 IRCC Portal – New version 和 GCKey。",
@@ -1133,6 +1265,31 @@ async function waitForIrccQueryJob(
   return job;
 }
 
+async function waitForKoreaQueryJob(
+  jobId: number,
+  onStatusChange?: (status: KoreaQueryJob["status"]) => void,
+): Promise<KoreaQueryJob | null> {
+  let job: KoreaQueryJob | null = null;
+  const queueWaitStartedAt = Date.now();
+  let lastStatus: KoreaQueryJob["status"] | null = null;
+  while (true) {
+    const jobPayload = await requestJson<{ job: KoreaQueryJob }>(`/api/korea/query-jobs/${jobId}`);
+    job = jobPayload.job;
+    if (job.status !== lastStatus) {
+      lastStatus = job.status;
+      onStatusChange?.(job.status);
+    }
+    if (job.status === "succeeded" || job.status === "failed") {
+      break;
+    }
+    if (job.status === "queued" && Date.now() - queueWaitStartedAt >= QUERY_JOB_QUEUE_WAIT_MS) {
+      break;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, QUERY_JOB_POLL_INTERVAL_MS));
+  }
+  return job;
+}
+
 function getInitialTheme(): ThemeMode {
   const stored = localStorage.getItem("themeMode");
   if (stored === "dark" || stored === "light") {
@@ -1193,12 +1350,18 @@ function formatDurationSeconds(seconds: number): string {
   return minutes > 0 ? `${minutes}m ${rest}s` : `${rest}s`;
 }
 
-function formatTriggerType(value: CeacCase["lastTriggerType"] | QueryTriggerType | IrccCase["lastTriggerType"], t: (key: TranslationKey) => string): string {
+function formatTriggerType(value: CeacCase["lastTriggerType"] | QueryTriggerType | IrccCase["lastTriggerType"] | KoreaCase["lastTriggerType"], t: (key: TranslationKey) => string): string {
   if (value === "ircc_manual") {
     return `${t("irccPortalTitle")} · ${t("triggerManual")}`;
   }
   if (value === "ircc_automatic") {
     return `${t("irccPortalTitle")} · ${t("triggerAutomatic")}`;
+  }
+  if (value === "korea_manual") {
+    return `${t("koreaVisaTitle")} · ${t("triggerManual")}`;
+  }
+  if (value === "korea_automatic") {
+    return `${t("koreaVisaTitle")} · ${t("triggerAutomatic")}`;
   }
   if (value === "passport_slot_manual") {
     return `${t("passportSlotMonitor")} · ${t("triggerManual")}`;
@@ -1266,10 +1429,12 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [cases, setCases] = useState<CeacCase[]>([]);
   const [irccCases, setIrccCases] = useState<IrccCase[]>([]);
+  const [koreaCases, setKoreaCases] = useState<KoreaCase[]>([]);
   const [adminCases, setAdminCases] = useState<AdminCase[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [irccHistory, setIrccHistory] = useState<IrccHistoryItem[]>([]);
+  const [koreaHistory, setKoreaHistory] = useState<KoreaHistoryItem[]>([]);
   const [passportSlotMonitor, setPassportSlotMonitor] = useState<PassportSlotMonitor | null>(null);
   const [passportSlotHistory, setPassportSlotHistory] = useState<PassportSlotHistoryItem[]>([]);
   const [passportSlotIdentifier, setPassportSlotIdentifier] = useState("");
@@ -1289,12 +1454,15 @@ export function App() {
   });
   const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
   const [selectedIrccCaseId, setSelectedIrccCaseId] = useState<number | null>(null);
+  const [selectedKoreaCaseId, setSelectedKoreaCaseId] = useState<number | null>(null);
   const [newProfileCountry, setNewProfileCountry] = useState<ProfileCountry>("us");
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [casesLoaded, setCasesLoaded] = useState(false);
   const [irccCasesLoaded, setIrccCasesLoaded] = useState(false);
+  const [koreaCasesLoaded, setKoreaCasesLoaded] = useState(false);
   const [caseForm, setCaseForm] = useState<CaseForm>(emptyCaseForm);
   const [irccCaseForm, setIrccCaseForm] = useState<IrccCaseForm>(emptyIrccCaseForm);
+  const [koreaCaseForm, setKoreaCaseForm] = useState<KoreaCaseForm>(emptyKoreaCaseForm);
   const [irccApplications, setIrccApplications] = useState<IrccDiscoveredApplication[]>([]);
   const [profileForm, setProfileForm] = useState<ProfileForm>({
     email: "",
@@ -1356,8 +1524,10 @@ export function App() {
         setProfileForm((current) => ({ ...current, email: payload.user.email }));
         setCaseForm((current) => current.receiveEmail ? current : createEmptyCaseForm(payload.user.email));
         setIrccCaseForm((current) => current.receiveEmail ? current : createEmptyIrccCaseForm(payload.user.email));
+        setKoreaCaseForm((current) => current.receiveEmail ? current : createEmptyKoreaCaseForm(payload.user.email));
         void loadCases();
         void loadIrccCases();
+        void loadKoreaCases();
       })
       .catch(() => undefined);
   }, []);
@@ -1368,11 +1538,14 @@ export function App() {
       setUser(null);
       setCases([]);
       setIrccCases([]);
+      setKoreaCases([]);
       setCasesLoaded(false);
       setIrccCasesLoaded(false);
+      setKoreaCasesLoaded(false);
       setIsCreatingProfile(false);
       setHistory([]);
       setIrccHistory([]);
+      setKoreaHistory([]);
       showMessage(detail || (languageMode === "zh" ? "登录已超时，请重新登录。" : "Session expired. Please sign in again."), "auth");
     };
     window.addEventListener("ceac-session-expired", handleSessionExpired);
@@ -1395,21 +1568,30 @@ export function App() {
         updatedAt: item.updatedAt,
         case: item,
       })),
+      ...koreaCases.map((item) => ({
+        profileType: "korea" as const,
+        id: item.id,
+        sortOrder: item.sortOrder ?? 0,
+        updatedAt: item.updatedAt,
+        case: item,
+      })),
     ].sort((left, right) => {
       if (left.sortOrder !== right.sortOrder) {
         return left.sortOrder - right.sortOrder;
       }
       return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
     });
-  }, [cases, irccCases]);
+  }, [cases, irccCases, koreaCases]);
 
   useEffect(() => {
-    if (!casesLoaded || !irccCasesLoaded || isCreatingProfile) {
+    if (!casesLoaded || !irccCasesLoaded || !koreaCasesLoaded || isCreatingProfile) {
       return;
     }
-    const currentSelectionExists = selectedIrccCaseId !== null
-      ? irccCases.some((item) => item.id === selectedIrccCaseId)
-      : selectedCaseId !== null && cases.some((item) => item.id === selectedCaseId);
+    const currentSelectionExists = selectedKoreaCaseId !== null
+      ? koreaCases.some((item) => item.id === selectedKoreaCaseId)
+      : selectedIrccCaseId !== null
+        ? irccCases.some((item) => item.id === selectedIrccCaseId)
+        : selectedCaseId !== null && cases.some((item) => item.id === selectedCaseId);
     if (currentSelectionExists) {
       return;
     }
@@ -1417,24 +1599,35 @@ export function App() {
     if (!firstProfile) {
       setSelectedCaseId(null);
       setSelectedIrccCaseId(null);
+      setSelectedKoreaCaseId(null);
       return;
     }
     if (firstProfile.profileType === "ceac") {
       setSelectedCaseId(firstProfile.id);
       setSelectedIrccCaseId(null);
-    } else {
+      setSelectedKoreaCaseId(null);
+    } else if (firstProfile.profileType === "ircc") {
       setSelectedCaseId(null);
       setSelectedIrccCaseId(firstProfile.id);
+      setSelectedKoreaCaseId(null);
+    } else {
+      setSelectedCaseId(null);
+      setSelectedIrccCaseId(null);
+      setSelectedKoreaCaseId(firstProfile.id);
     }
-  }, [cases, casesLoaded, irccCases, irccCasesLoaded, isCreatingProfile, orderedProfiles, selectedCaseId, selectedIrccCaseId]);
+  }, [cases, casesLoaded, irccCases, irccCasesLoaded, koreaCases, koreaCasesLoaded, isCreatingProfile, orderedProfiles, selectedCaseId, selectedIrccCaseId, selectedKoreaCaseId]);
 
   const selectedCase = useMemo(
-    () => selectedIrccCaseId === null && selectedCaseId !== null ? cases.find((item) => item.id === selectedCaseId) ?? null : null,
-    [cases, selectedCaseId, selectedIrccCaseId],
+    () => selectedIrccCaseId === null && selectedKoreaCaseId === null && selectedCaseId !== null ? cases.find((item) => item.id === selectedCaseId) ?? null : null,
+    [cases, selectedCaseId, selectedIrccCaseId, selectedKoreaCaseId],
   );
   const selectedIrccCase = useMemo(
-    () => selectedIrccCaseId === null ? null : irccCases.find((item) => item.id === selectedIrccCaseId) ?? null,
-    [irccCases, selectedIrccCaseId],
+    () => selectedIrccCaseId === null || selectedKoreaCaseId !== null ? null : irccCases.find((item) => item.id === selectedIrccCaseId) ?? null,
+    [irccCases, selectedIrccCaseId, selectedKoreaCaseId],
+  );
+  const selectedKoreaCase = useMemo(
+    () => selectedKoreaCaseId === null ? null : koreaCases.find((item) => item.id === selectedKoreaCaseId) ?? null,
+    [koreaCases, selectedKoreaCaseId],
   );
 
   useEffect(() => {
@@ -1457,6 +1650,14 @@ export function App() {
     }
   }, [selectedIrccCase?.id]);
 
+  useEffect(() => {
+    if (selectedKoreaCase) {
+      void loadKoreaHistory(selectedKoreaCase.id);
+    } else {
+      setKoreaHistory([]);
+    }
+  }, [selectedKoreaCase?.id]);
+
   async function loadCases() {
     const payload = await requestJson<{ cases: CeacCase[] }>("/api/cases");
     setCases(payload.cases);
@@ -1469,6 +1670,12 @@ export function App() {
     setIrccCasesLoaded(true);
   }
 
+  async function loadKoreaCases() {
+    const payload = await requestJson<{ cases: KoreaCase[] }>("/api/korea/cases");
+    setKoreaCases(payload.cases);
+    setKoreaCasesLoaded(true);
+  }
+
   async function loadHistory(caseId: number) {
     const payload = await requestJson<{ history: HistoryItem[] }>(`/api/cases/${caseId}/history`);
     setHistory(payload.history);
@@ -1477,6 +1684,11 @@ export function App() {
   async function loadIrccHistory(caseId: number) {
     const payload = await requestJson<{ history: IrccHistoryItem[] }>(`/api/ircc/cases/${caseId}/history`);
     setIrccHistory(payload.history);
+  }
+
+  async function loadKoreaHistory(caseId: number) {
+    const payload = await requestJson<{ history: KoreaHistoryItem[] }>(`/api/korea/cases/${caseId}/history`);
+    setKoreaHistory(payload.history);
   }
 
   async function loadPassportSlotMonitor(caseId: number) {
@@ -1624,10 +1836,12 @@ export function App() {
       setProfileForm({ email: payload.user.email, currentPassword: "", newPassword: "", confirmPassword: "" });
       setCaseForm((current) => current.receiveEmail ? current : createEmptyCaseForm(payload.user.email));
       setIrccCaseForm((current) => current.receiveEmail ? current : createEmptyIrccCaseForm(payload.user.email));
+      setKoreaCaseForm((current) => current.receiveEmail ? current : createEmptyKoreaCaseForm(payload.user.email));
       setIsCreatingProfile(false);
       setCasesLoaded(false);
       setIrccCasesLoaded(false);
-      await Promise.all([loadCases(), loadIrccCases()]);
+      setKoreaCasesLoaded(false);
+      await Promise.all([loadCases(), loadIrccCases(), loadKoreaCases()]);
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("signInFailed"));
     } finally {
@@ -1657,11 +1871,14 @@ export function App() {
     setUser(null);
     setCases([]);
     setIrccCases([]);
+    setKoreaCases([]);
     setCasesLoaded(false);
     setIrccCasesLoaded(false);
+    setKoreaCasesLoaded(false);
     setIsCreatingProfile(false);
     setHistory([]);
     setIrccHistory([]);
+    setKoreaHistory([]);
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -1735,6 +1952,7 @@ export function App() {
       setCaseForm(createEmptyCaseForm(user?.email ?? ""));
       setSelectedCaseId(result.case.id);
       setSelectedIrccCaseId(null);
+      setSelectedKoreaCaseId(null);
       setIsCreatingProfile(false);
       await loadCases();
       if (result.initialQueryJob) {
@@ -1835,6 +2053,7 @@ export function App() {
       setIrccApplications([]);
       setSelectedCaseId(null);
       setSelectedIrccCaseId(result.case.id);
+      setSelectedKoreaCaseId(null);
       setIsCreatingProfile(false);
       await loadIrccCases();
       if (result.initialQueryJob) {
@@ -1851,6 +2070,69 @@ export function App() {
         showMessage(
           queryResult?.success
             ? (queryResult.changed ? t("irccChanged") : t("irccUnchanged"))
+            : (job.errorMessage || queryResult?.error || t("requestFailed")),
+        );
+        return;
+      }
+      showMessage(t("caseCreated"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function saveKoreaCase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsBusy(true);
+    showMessage("");
+    try {
+      const payload = {
+        displayName: koreaCaseForm.displayName,
+        passportNumber: koreaCaseForm.passportNumber,
+        englishName: koreaCaseForm.englishName,
+        birthDate: koreaCaseForm.birthDate,
+        receiveEmail: koreaCaseForm.receiveEmail || null,
+        senderMode: koreaCaseForm.senderMode,
+        isEnabled: koreaCaseForm.isEnabled,
+        emailNotificationsEnabled: koreaCaseForm.emailNotificationsEnabled,
+        smtpConfig: koreaCaseForm.senderMode === "custom"
+          ? {
+              fromEmail: koreaCaseForm.smtpFromEmail,
+              host: koreaCaseForm.smtpHost,
+              port: Number(koreaCaseForm.smtpPort),
+              useSsl: koreaCaseForm.smtpUseSsl,
+              password: koreaCaseForm.smtpPassword,
+            }
+          : null,
+      };
+      const result = await requestJson<{
+        case: KoreaCase;
+        initialQueryJob?: { jobId: number; status: KoreaQueryJob["status"] } | null;
+      }>("/api/korea/cases", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setKoreaCaseForm(createEmptyKoreaCaseForm(user?.email ?? ""));
+      setSelectedCaseId(null);
+      setSelectedIrccCaseId(null);
+      setSelectedKoreaCaseId(result.case.id);
+      setIsCreatingProfile(false);
+      await loadKoreaCases();
+      if (result.initialQueryJob) {
+        const job = await waitForKoreaQueryJob(result.initialQueryJob.jobId, (status) => {
+          showMessage(status === "queued" ? t("koreaQueued") : t("koreaQuerying"));
+        });
+        await loadKoreaCases();
+        await loadKoreaHistory(result.case.id);
+        if (!job || (job.status !== "succeeded" && job.status !== "failed")) {
+          showMessage(job?.status === "queued" ? t("koreaQueued") : t("koreaQuerying"));
+          return;
+        }
+        const queryResult = job.result;
+        showMessage(
+          queryResult?.success
+            ? (queryResult.changed ? t("koreaChanged") : t("koreaUnchanged"))
             : (job.errorMessage || queryResult?.error || t("requestFailed")),
         );
         return;
@@ -1959,6 +2241,52 @@ export function App() {
     }
   }
 
+  async function runKoreaTest(caseId: number) {
+    setIsBusy(true);
+    showMessage(t("koreaQuerying"));
+    try {
+      const payload = await requestJson<{ jobId: number; status: KoreaQueryJob["status"] }>(`/api/korea/cases/${caseId}/test-query`, {
+        method: "POST",
+        body: "{}",
+      });
+      const job = await waitForKoreaQueryJob(payload.jobId, (status) => {
+        showMessage(status === "queued" ? t("koreaQueued") : t("koreaQuerying"));
+      });
+      await loadKoreaCases();
+      await loadKoreaHistory(caseId);
+      if (!job || (job.status !== "succeeded" && job.status !== "failed")) {
+        showMessage(job?.status === "queued" ? t("koreaQueued") : t("koreaQuerying"));
+        return;
+      }
+      const result = job.result;
+      showMessage(
+        result?.success
+          ? (result.changed ? t("koreaChanged") : t("koreaUnchanged"))
+          : (job.errorMessage || result?.error || t("requestFailed")),
+      );
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function sendKoreaTestEmail(caseId: number) {
+    setIsBusy(true);
+    showMessage(t("koreaTestEmailSending"));
+    try {
+      await requestJson<{ success: boolean; error: string }>(`/api/korea/cases/${caseId}/test-email`, {
+        method: "POST",
+        body: "{}",
+      });
+      showMessage(t("koreaTestEmailSent"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function toggleIrccEmailPush(targetCase: IrccCase) {
     setIsBusy(true);
     showMessage("");
@@ -1969,6 +2297,40 @@ export function App() {
       });
       await loadIrccCases();
       showMessage(!targetCase.emailNotificationsEnabled ? t("updatePushEnabled") : t("updatePushDisabled"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function toggleKoreaEmailPush(targetCase: KoreaCase) {
+    setIsBusy(true);
+    showMessage("");
+    try {
+      await requestJson<{ case: KoreaCase }>(`/api/korea/cases/${targetCase.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ emailNotificationsEnabled: !targetCase.emailNotificationsEnabled }),
+      });
+      await loadKoreaCases();
+      showMessage(!targetCase.emailNotificationsEnabled ? t("updatePushEnabled") : t("updatePushDisabled"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function stopKoreaAutomaticQuery(targetCase: KoreaCase) {
+    setIsBusy(true);
+    showMessage("");
+    try {
+      await requestJson<{ case: KoreaCase }>(`/api/korea/cases/${targetCase.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isEnabled: false }),
+      });
+      await loadKoreaCases();
+      showMessage(t("automaticQueryStopped"));
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("requestFailed"));
     } finally {
@@ -2215,7 +2577,7 @@ export function App() {
     }
   }
 
-  async function moveProfile(profileType: "ceac" | "ircc", profileId: number, direction: "up" | "down") {
+  async function moveProfile(profileType: "ceac" | "ircc" | "korea", profileId: number, direction: "up" | "down") {
     const currentIndex = orderedProfiles.findIndex((item) => item.profileType === profileType && item.id === profileId);
     const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedProfiles.length) {
@@ -2232,7 +2594,7 @@ export function App() {
           profiles: nextProfiles.map((item) => ({ profileType: item.profileType, id: item.id })),
         }),
       });
-      await Promise.all([loadCases(), loadIrccCases()]);
+      await Promise.all([loadCases(), loadIrccCases(), loadKoreaCases()]);
       showMessage(t("profileOrderSaved"));
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("profileOrderFailed"));
@@ -2252,6 +2614,14 @@ export function App() {
     setSelectedIrccCaseId(null);
     setSelectedCaseId(null);
     await loadIrccCases();
+  }
+
+  async function removeKoreaCase(caseId: number) {
+    await requestJson<{ ok: boolean }>(`/api/korea/cases/${caseId}`, { method: "DELETE", body: "{}" });
+    setSelectedKoreaCaseId(null);
+    setSelectedIrccCaseId(null);
+    setSelectedCaseId(null);
+    await loadKoreaCases();
   }
 
   if (!user) {
@@ -2442,7 +2812,7 @@ export function App() {
               <section className="panel">
                 <div className="panel-title">
                   <h2 className="headline">{t("caseList")}</h2>
-                  <button className="button secondary" title={t("caseName")} onClick={() => { setIsCreatingProfile(true); setSelectedCaseId(null); setSelectedIrccCaseId(null); setCaseForm(createEmptyCaseForm(user.email)); setIrccCaseForm(createEmptyIrccCaseForm(user.email)); }}>
+                  <button className="button secondary" title={t("caseName")} onClick={() => { setIsCreatingProfile(true); setSelectedCaseId(null); setSelectedIrccCaseId(null); setSelectedKoreaCaseId(null); setCaseForm(createEmptyCaseForm(user.email)); setIrccCaseForm(createEmptyIrccCaseForm(user.email)); setKoreaCaseForm(createEmptyKoreaCaseForm(user.email)); }}>
                     <Plus size={16} /> {t("newProfile")}
                   </button>
                 </div>
@@ -2450,15 +2820,22 @@ export function App() {
                   {orderedProfiles.map((profile, index) => {
                     const item = profile.case;
                     const isCeac = profile.profileType === "ceac";
+                    const isKorea = profile.profileType === "korea";
                     const isSelected = isCeac
-                      ? selectedCaseId === item.id && selectedIrccCaseId === null
-                      : selectedIrccCaseId === item.id;
+                      ? selectedCaseId === item.id && selectedIrccCaseId === null && selectedKoreaCaseId === null
+                      : isKorea
+                        ? selectedKoreaCaseId === item.id
+                        : selectedIrccCaseId === item.id;
                     const statusNode = profile.profileType === "ceac"
                       ? <span className={getStatusBadgeClass(profile.case.lastStatus)}>{profile.case.lastStatus ?? t("waitFirstQuery")}</span>
-                      : <span className="status-badge">{profile.case.lastSnapshotHash ? t("success") : t("waitFirstQuery")}</span>;
+                      : profile.profileType === "ircc"
+                        ? <span className="status-badge">{profile.case.lastSnapshotHash ? t("success") : t("waitFirstQuery")}</span>
+                        : <span className={getStatusBadgeClass(profile.case.lastStatus)}>{profile.case.lastStatus || t("waitFirstQuery")}</span>;
                     const caseMeta = profile.profileType === "ceac"
                       ? `${t("countryUnitedStates")} · ${profile.case.applicationNum || t("missingCaseNumber")}`
-                      : `${t("countryCanada")} · ${profile.case.applicationNumber || profile.case.appId}`;
+                      : profile.profileType === "ircc"
+                        ? `${t("countryCanada")} · ${profile.case.applicationNumber || profile.case.appId}`
+                        : `${t("countryKorea")} · ${profile.case.lastApplicationNo || profile.case.passportNumber}`;
                     return (
                       <div
                         key={`${profile.profileType}-${item.id}`}
@@ -2467,9 +2844,15 @@ export function App() {
                           setIsCreatingProfile(false);
                           if (isCeac) {
                             setSelectedIrccCaseId(null);
+                            setSelectedKoreaCaseId(null);
                             setSelectedCaseId(item.id);
+                          } else if (isKorea) {
+                            setSelectedCaseId(null);
+                            setSelectedIrccCaseId(null);
+                            setSelectedKoreaCaseId(item.id);
                           } else {
                             setSelectedCaseId(null);
+                            setSelectedKoreaCaseId(null);
                             setSelectedIrccCaseId(item.id);
                           }
                         }}
@@ -2520,7 +2903,20 @@ export function App() {
             </div>
 
             <div className="stack">
-              {selectedIrccCase ? (
+              {selectedKoreaCase ? (
+                <KoreaCaseDetail
+                  targetCase={selectedKoreaCase}
+                  history={koreaHistory}
+                  runQuery={runKoreaTest}
+                  sendTestEmail={sendKoreaTestEmail}
+                  removeCase={removeKoreaCase}
+                  toggleEmailPush={toggleKoreaEmailPush}
+                  stopAutomaticQuery={stopKoreaAutomaticQuery}
+                  isBusy={isBusy}
+                  t={t}
+                  languageMode={languageMode}
+                />
+              ) : selectedIrccCase ? (
                 <IrccCaseDetail
                   targetCase={selectedIrccCase}
                   history={irccHistory}
@@ -2550,6 +2946,9 @@ export function App() {
                     irccCaseForm={irccCaseForm}
                     setIrccCaseForm={setIrccCaseForm}
                     saveIrccCase={saveIrccCase}
+                    koreaCaseForm={koreaCaseForm}
+                    setKoreaCaseForm={setKoreaCaseForm}
+                    saveKoreaCase={saveKoreaCase}
                     discoverIrccApplications={discoverIrccApplications}
                     irccApplications={irccApplications}
                     isBusy={isBusy}
@@ -3034,6 +3433,105 @@ function getIrccApplicant(snapshot: IrccSnapshot | null): Record<string, unknown
   const appStatus = snapshot?.appStatus;
   const list = appStatus?.listOfApplicants;
   return Array.isArray(list) && list[0] && typeof list[0] === "object" ? list[0] as Record<string, unknown> : {};
+}
+
+function KoreaCaseDetail(props: {
+  targetCase: KoreaCase;
+  history: KoreaHistoryItem[];
+  runQuery: (caseId: number) => Promise<void>;
+  sendTestEmail: (caseId: number) => Promise<void>;
+  removeCase: (caseId: number) => Promise<void>;
+  toggleEmailPush: (targetCase: KoreaCase) => Promise<void>;
+  stopAutomaticQuery: (targetCase: KoreaCase) => Promise<void>;
+  isBusy: boolean;
+  t: (key: TranslationKey) => string;
+  languageMode: LanguageMode;
+}) {
+  return (
+    <>
+      <section className="panel">
+        <div className="panel-title">
+          <div>
+            <h2 className="headline">{props.targetCase.displayName}</h2>
+            <p className="form-intro compact">{props.t("countryKorea")} · {props.t("koreaVisaTitle")}</p>
+          </div>
+          <div className="row-actions">
+            <button className="button secondary" onClick={() => props.runQuery(props.targetCase.id)} disabled={props.isBusy}>
+              <Activity size={16} /> {props.t("fastQuery")}
+            </button>
+            <button className="button secondary" onClick={() => props.sendTestEmail(props.targetCase.id)} disabled={props.isBusy || props.history.length === 0}>
+              <Mail size={16} /> {props.t("koreaTestEmail")}
+            </button>
+            <button className="icon-button danger" onClick={() => { if (confirm(props.t("confirmDelete"))) void props.removeCase(props.targetCase.id); }}>
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="stack">
+          {props.targetCase.lastErrorMessage && (
+            <div className="notice">
+              <strong>{props.t("koreaLastError")}：</strong>{props.targetCase.lastErrorMessage}
+            </div>
+          )}
+          <div className="two-col metric-grid">
+            <Metric label={`${props.t("passport")} / ${props.t("koreaEnglishName")}`} value={`${props.targetCase.passportNumber} / ${props.targetCase.englishName}`} />
+            <Metric label={props.t("koreaBirthDate")} value={props.targetCase.birthDate} />
+          </div>
+          <div className="two-col metric-grid">
+            <Metric label={props.t("koreaApplicationNo")} value={props.targetCase.lastApplicationNo || "-"} />
+            <Metric label={props.t("koreaApplicationDate")} value={props.targetCase.lastApplicationDate || "-"} />
+          </div>
+          <div className="two-col metric-grid">
+            <Metric label={props.t("koreaEntryPurpose")} value={props.targetCase.lastEntryPurpose || "-"} />
+            <Metric label={props.t("status")}>
+              <span className={getStatusBadgeClass(props.targetCase.lastStatus, "metric-status")}>
+                {props.targetCase.lastStatus || props.t("noStatus")}
+              </span>
+            </Metric>
+          </div>
+          <div className="two-col metric-grid">
+            <Metric label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
+            <Metric label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
+          </div>
+          <div className="two-col metric-grid">
+            <Metric label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
+            <Metric label={props.t("emailPushSetting")} value={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")} />
+          </div>
+          <div className="settings-row">
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={props.targetCase.emailNotificationsEnabled}
+                onChange={() => props.toggleEmailPush(props.targetCase)}
+                disabled={props.isBusy}
+              />
+              <span className="body-sm">{props.t("emailPushSetting")}</span>
+            </label>
+            <button className="button secondary" onClick={() => props.stopAutomaticQuery(props.targetCase)} disabled={props.isBusy || !props.targetCase.isEnabled}>
+              {props.t("stopAutomaticQuery")}
+            </button>
+          </div>
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-title">
+          <h2 className="headline">{props.t("statusHistory")}</h2>
+        </div>
+        <div className="history-list">
+          {props.history.map((item) => (
+            <div className="history-item" key={item.id}>
+              <div>
+                <strong>{item.status || props.t("noStatus")}</strong>
+                <p>{props.t("koreaApplicationNo")}: {item.applicationNo || "-"} · {props.t("koreaEntryPurpose")}: {item.entryPurpose || "-"}</p>
+              </div>
+              <span>{formatTime(item.fetchedAt, props.languageMode)}</span>
+            </div>
+          ))}
+          {props.history.length === 0 && <p className="empty-state">{props.t("koreaNoHistory")}</p>}
+        </div>
+      </section>
+    </>
+  );
 }
 
 function IrccCaseDetail(props: {
@@ -3910,7 +4408,8 @@ function AdminPanel(props: {
                       {ownedCases.map((item) => {
                         const key = item.adminCaseKey ?? `${item.profileType ?? "ceac"}-${item.id}`;
                         const isIrcc = item.profileType === "ircc";
-                        const countryLabel = isIrcc ? props.t("countryCanada") : props.t("countryUnitedStates");
+                        const isKorea = item.profileType === "korea";
+                        const countryLabel = isKorea ? props.t("countryKorea") : isIrcc ? props.t("countryCanada") : props.t("countryUnitedStates");
                         const statusSummary = item.lastStatus ?? props.t("waitFirstQuery");
                         const irccSummaryParts = statusSummary.split(" · ").filter(Boolean);
                         const irccPrimarySummary = irccSummaryParts[0] ?? statusSummary;
@@ -3937,6 +4436,12 @@ function AdminPanel(props: {
                                     </div>
                                   )}
                                 </>
+                              ) : isKorea ? (
+                                <div className="admin-profile-status-line">
+                                  <span className={getStatusBadgeClass(item.lastStatus)}>
+                                    {statusSummary}
+                                  </span>
+                                </div>
                               ) : (
                                 <>
                                   <div className="admin-profile-status-line">
@@ -3960,10 +4465,10 @@ function AdminPanel(props: {
                             </div>
                             <div className="admin-profile-side">
                               <span className="mono-text">{formatTime(item.lastCheckedAt, props.languageMode)}</span>
-                              {!isIrcc && item.passportSlotMonitor?.lastErrorMessage && (
+                              {!isIrcc && !isKorea && item.passportSlotMonitor?.lastErrorMessage && (
                                 <span className="status-badge error">{item.passportSlotMonitor.lastErrorMessage}</span>
                               )}
-                              {!isIrcc && item.ceacAutoLockedByPassportSlot && (
+                              {!isIrcc && !isKorea && item.ceacAutoLockedByPassportSlot && (
                                 <button
                                   type="button"
                                   className="button secondary compact-button"
@@ -4321,6 +4826,9 @@ function NewProfileForm(props: {
   irccCaseForm: IrccCaseForm;
   setIrccCaseForm: React.Dispatch<React.SetStateAction<IrccCaseForm>>;
   saveIrccCase: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  koreaCaseForm: KoreaCaseForm;
+  setKoreaCaseForm: React.Dispatch<React.SetStateAction<KoreaCaseForm>>;
+  saveKoreaCase: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   discoverIrccApplications: (e?: FormEvent<HTMLFormElement>) => Promise<void>;
   irccApplications: IrccDiscoveredApplication[];
   isBusy: boolean;
@@ -4334,17 +4842,26 @@ function NewProfileForm(props: {
         <div className="segmented">
           <button type="button" className={props.country === "us" ? "selected" : ""} onClick={() => props.setCountry("us")}>{props.t("countryUnitedStates")}</button>
           <button type="button" className={props.country === "ca" ? "selected" : ""} onClick={() => props.setCountry("ca")}>{props.t("countryCanada")}</button>
+          <button type="button" className={props.country === "kr" ? "selected" : ""} onClick={() => props.setCountry("kr")}>{props.t("countryKorea")}</button>
         </div>
       </label>
       {props.country === "us" ? (
         <CaseFormView caseForm={props.caseForm} setCaseForm={props.setCaseForm} saveCase={props.saveCase} isBusy={props.isBusy} t={props.t} languageMode={props.languageMode} />
-      ) : (
+      ) : props.country === "ca" ? (
         <IrccCaseFormView
           form={props.irccCaseForm}
           setForm={props.setIrccCaseForm}
           saveCase={props.saveIrccCase}
           discoverApplications={props.discoverIrccApplications}
           applications={props.irccApplications}
+          isBusy={props.isBusy}
+          t={props.t}
+        />
+      ) : (
+        <KoreaCaseFormView
+          form={props.koreaCaseForm}
+          setForm={props.setKoreaCaseForm}
+          saveCase={props.saveKoreaCase}
           isBusy={props.isBusy}
           t={props.t}
         />
@@ -4466,6 +4983,81 @@ function IrccCaseFormView(props: {
         )}
       </div>
       <button className="button primary" disabled={props.isBusy}>{props.t("irccSave")}</button>
+    </form>
+  );
+}
+
+function KoreaCaseFormView(props: {
+  form: KoreaCaseForm;
+  setForm: React.Dispatch<React.SetStateAction<KoreaCaseForm>>;
+  saveCase: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  isBusy: boolean;
+  t: (key: TranslationKey) => string;
+}) {
+  const form = props.form;
+  const setForm = props.setForm;
+  return (
+    <form className="stack" onSubmit={props.saveCase}>
+      <div className="official-form-note">
+        <strong>{props.t("koreaVisaTitle")}</strong>
+        <span>{props.t("countryKorea")}</span>
+      </div>
+      <div className="form-section">
+        <p className="section-help">{props.t("koreaQueryHint")}</p>
+        <label>
+          {props.t("caseName")}
+          <input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} required placeholder="例如：韩国签证" />
+        </label>
+        <div className="two-col">
+          <label>
+            {props.t("passport")}
+            <input value={form.passportNumber} onChange={(e) => setForm({ ...form, passportNumber: e.target.value.trim().toUpperCase() })} required placeholder={props.t("passportPlaceholder")} />
+          </label>
+          <label>
+            {props.t("koreaBirthDate")}
+            <input value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value.trim() })} required type="date" placeholder="YYYY-MM-DD" />
+          </label>
+        </div>
+        <label>
+          {props.t("koreaEnglishName")}
+          <input value={form.englishName} onChange={(e) => setForm({ ...form, englishName: e.target.value.toUpperCase() })} required placeholder="ZHANG SAN" />
+          <span className="field-hint">{props.t("koreaNameHint")}</span>
+        </label>
+      </div>
+      <div className="form-section">
+        <p className="section-help">{props.t("deliverySection")}</p>
+        <label>
+          {props.t("deliveryEmail")}
+          <input value={form.receiveEmail} onChange={(e) => setForm({ ...form, receiveEmail: e.target.value.trim() })} type="email" required={form.emailNotificationsEnabled} />
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={form.isEnabled} onChange={(e) => setForm({ ...form, isEnabled: e.target.checked })} />
+          <span className="body-sm">{props.t("autoMonitor")}</span>
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={form.emailNotificationsEnabled} onChange={(e) => setForm({ ...form, emailNotificationsEnabled: e.target.checked })} />
+          <span className="body-sm">{props.t("emailPushSetting")}</span>
+        </label>
+        <label>
+          {props.t("senderConfig")}
+          <div className="segmented">
+            <button type="button" className={form.senderMode === "system" ? "selected" : ""} onClick={() => setForm({ ...form, senderMode: "system" })}>{props.t("systemSender")}</button>
+            <button type="button" className={form.senderMode === "custom" ? "selected" : ""} onClick={() => setForm({ ...form, senderMode: "custom" })}>{props.t("useCustomSmtp")}</button>
+          </div>
+        </label>
+        {form.senderMode === "custom" && (
+          <div className="smtp-box">
+            <label>{props.t("smtpEmail")} <input value={form.smtpFromEmail} onChange={(e) => setForm({ ...form, smtpFromEmail: e.target.value })} type="email" required /></label>
+            <div className="two-col">
+              <label>{props.t("smtpHost")} <input value={form.smtpHost} onChange={(e) => setForm({ ...form, smtpHost: e.target.value })} required /></label>
+              <label>{props.t("smtpPort")} <input value={form.smtpPort} onChange={(e) => setForm({ ...form, smtpPort: e.target.value })} required /></label>
+            </div>
+            <label>{props.t("passwordOrCode")} <input value={form.smtpPassword} onChange={(e) => setForm({ ...form, smtpPassword: e.target.value })} type="password" required /></label>
+            <label className="checkbox"><input type="checkbox" checked={form.smtpUseSsl} onChange={(e) => setForm({ ...form, smtpUseSsl: e.target.checked })} /> <span>{props.t("useSsl")}</span></label>
+          </div>
+        )}
+      </div>
+      <button className="button primary" disabled={props.isBusy}>{props.t("koreaSave")}</button>
     </form>
   );
 }

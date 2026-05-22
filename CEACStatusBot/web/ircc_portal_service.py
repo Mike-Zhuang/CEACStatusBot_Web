@@ -815,7 +815,12 @@ def getIrccCase(caseId: int, userId: int | None = None) -> dict[str, Any] | None
 def countUserProfiles(connection: Any, userId: int) -> int:
     ceacRow = connection.execute("SELECT COUNT(*) AS case_count FROM ceac_cases WHERE user_id = ?", (userId,)).fetchone()
     irccRow = connection.execute("SELECT COUNT(*) AS case_count FROM ircc_cases WHERE user_id = ?", (userId,)).fetchone()
-    return int(ceacRow["case_count"] if ceacRow else 0) + int(irccRow["case_count"] if irccRow else 0)
+    koreaRow = connection.execute("SELECT COUNT(*) AS case_count FROM korea_cases WHERE user_id = ?", (userId,)).fetchone()
+    return (
+        int(ceacRow["case_count"] if ceacRow else 0)
+        + int(irccRow["case_count"] if irccRow else 0)
+        + int(koreaRow["case_count"] if koreaRow else 0)
+    )
 
 
 def createIrccCase(userId: int, payload: IrccCaseInput) -> dict[str, Any]:

@@ -41,6 +41,19 @@ from .ircc_portal_service import (
     patchIrccCase,
     sendCurrentIrccEmail,
 )
+from .korea_visa_service import (
+    createKoreaCase,
+    deleteKoreaCase,
+    enqueueDueKoreaCases,
+    enqueueKoreaCaseQuery,
+    getKoreaCase,
+    getKoreaQueryJob,
+    listKoreaCases,
+    listKoreaHistory,
+    migrateKoreaEncryptedFields,
+    patchKoreaCase,
+    sendCurrentKoreaEmail,
+)
 from .mailer import getSystemSmtpConfigPublic, saveSystemSmtpConfig, sendSystemEmail
 from .passport_slot_service import (
     enqueueDuePassportSlotMonitors,
@@ -58,6 +71,8 @@ from .schemas import (
     IrccCaseInput,
     IrccCasePatch,
     IrccDiscoverRequest,
+    KoreaCaseInput,
+    KoreaCasePatch,
     LoginRequest,
     PasswordResetCodeRequest,
     PasswordResetRequest,
@@ -296,7 +311,27 @@ def enforceDailyManualQueryLimit(user: dict) -> None:
                 tomorrowStart.isoformat(),
             ),
         ).fetchone()
-    queryCount = int(row["query_count"] if row else 0) + int(irccRow["query_count"] if irccRow else 0)
+        koreaRow = connection.execute(
+            """
+            SELECT COUNT(*) AS query_count
+            FROM korea_query_jobs j
+            JOIN korea_cases c ON c.id = j.case_id
+            WHERE c.user_id = ?
+              AND j.trigger_type = 'korea_manual'
+              AND j.created_at >= ?
+              AND j.created_at < ?
+            """,
+            (
+                int(user["id"]),
+                todayStart.isoformat(),
+                tomorrowStart.isoformat(),
+            ),
+        ).fetchone()
+    queryCount = (
+        int(row["query_count"] if row else 0)
+        + int(irccRow["query_count"] if irccRow else 0)
+        + int(koreaRow["query_count"] if koreaRow else 0)
+    )
     if queryCount >= queryLimit:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -331,6 +366,15 @@ def runDueIrccCases() -> None:
         print(f"[scheduler] enqueue IRCC failed: {exc}")
 
 
+def runDueKoreaCases() -> None:
+    try:
+        queued = enqueueDueKoreaCases()
+        if queued:
+            print(f"[scheduler] queued {len(queued)} Korea visa query job(s)")
+    except Exception as exc:
+        print(f"[scheduler] enqueue Korea visa failed: {exc}")
+
+
 def parseOptionalIso(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -342,7 +386,7 @@ def parseOptionalIso(value: str | None) -> datetime | None:
 
 def latestUserStatusOrSlotActivity(user: dict) -> datetime:
     candidates = [parseOptionalIso(user.get("created_at")) or datetime.now(UTC)]
-    for key in ("latest_status_at", "latest_slot_at", "latest_ircc_at"):
+    for key in ("latest_status_at", "latest_slot_at", "latest_ircc_at", "latest_korea_at"):
         parsed = parseOptionalIso(user.get(key))
         if parsed:
             candidates.append(parsed)
@@ -378,7 +422,13 @@ def processInactiveAccounts() -> None:
                     FROM ircc_status_history ih
                     JOIN ircc_cases ic ON ic.id = ih.case_id
                     WHERE ic.user_id = u.id
-                ) AS latest_ircc_at
+                ) AS latest_ircc_at,
+                (
+                    SELECT max(kh.fetched_at)
+                    FROM korea_status_history kh
+                    JOIN korea_cases kc ON kc.id = kh.case_id
+                    WHERE kc.user_id = u.id
+                ) AS latest_korea_at
             FROM users u
             WHERE u.role != 'admin'
             """,
@@ -445,12 +495,14 @@ def onStartup() -> None:
     getCredentialMasterKey()
     initializeDatabase()
     migrateEncryptedFields()
+    migrateKoreaEncryptedFields()
     if settings.seedDefaultUsers:
         seedDefaultUsers()
     if not scheduler.running:
         scheduler.add_job(runDueCases, "interval", minutes=1, id="run-due-cases", replace_existing=True)
         scheduler.add_job(runDuePassportSlotMonitors, "interval", seconds=1, id="run-due-passport-slot-monitors", replace_existing=True)
         scheduler.add_job(runDueIrccCases, "interval", minutes=1, id="run-due-ircc-cases", replace_existing=True)
+        scheduler.add_job(runDueKoreaCases, "interval", minutes=1, id="run-due-korea-cases", replace_existing=True)
         scheduler.add_job(runInactiveAccountCleanup, "interval", hours=6, id="run-inactive-account-cleanup", replace_existing=True)
         scheduler.start()
 
@@ -982,6 +1034,77 @@ def apiIrccQueryJob(jobId: int, user: dict = Depends(currentUserDependency)) -> 
     return {"job": job}
 
 
+@app.get("/api/korea/cases")
+def apiListKoreaCases(user: dict = Depends(currentUserDependency)) -> dict:
+    return {"cases": listKoreaCases(int(user["id"]))}
+
+
+@app.post("/api/korea/cases")
+def apiCreateKoreaCase(payload: KoreaCaseInput, user: dict = Depends(currentUserDependency)) -> dict:
+    try:
+        case = createKoreaCase(int(user["id"]), payload)
+        initialQueryJob = None
+        if payload.isEnabled:
+            job = enqueueKoreaCaseQuery(int(case["id"]), "korea_automatic", int(user["id"]))
+            if job:
+                initialQueryJob = {"jobId": job["id"], "status": job["status"]}
+        return {"case": case, "initialQueryJob": initialQueryJob}
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.patch("/api/korea/cases/{caseId}")
+def apiPatchKoreaCase(caseId: int, payload: KoreaCasePatch, user: dict = Depends(currentUserDependency)) -> dict:
+    try:
+        case = patchKoreaCase(caseId, int(user["id"]), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="韩国签证档案不存在")
+    return {"case": case}
+
+
+@app.delete("/api/korea/cases/{caseId}")
+def apiDeleteKoreaCase(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
+    if not deleteKoreaCase(caseId, int(user["id"])):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="韩国签证档案不存在")
+    return {"ok": True}
+
+
+@app.get("/api/korea/cases/{caseId}/history")
+def apiKoreaHistory(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
+    if not getKoreaCase(caseId, int(user["id"])):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="韩国签证档案不存在")
+    return {"history": listKoreaHistory(caseId, int(user["id"]))}
+
+
+@app.post("/api/korea/cases/{caseId}/test-query")
+def apiTestKoreaQuery(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
+    enforceDailyManualQueryLimit(user)
+    job = enqueueKoreaCaseQuery(caseId, "korea_manual", int(user["id"]))
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="韩国签证档案不存在")
+    return {"jobId": job["id"], "status": job["status"]}
+
+
+@app.post("/api/korea/cases/{caseId}/test-email")
+def apiTestKoreaEmail(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
+    payload = sendCurrentKoreaEmail(caseId, int(user["id"]))
+    if not payload["success"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=payload["error"])
+    return payload
+
+
+@app.get("/api/korea/query-jobs/{jobId}")
+def apiKoreaQueryJob(jobId: int, user: dict = Depends(currentUserDependency)) -> dict:
+    job = getKoreaQueryJob(jobId, int(user["id"]))
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="韩国签证查询任务不存在")
+    return {"job": job}
+
+
 @app.get("/api/admin/users")
 def adminUsers(_: dict = Depends(adminDependency)) -> dict:
     with getConnection() as connection:
@@ -1004,6 +1127,10 @@ def adminUsers(_: dict = Depends(adminDependency)) -> dict:
                     SELECT COUNT(*)
                     FROM ircc_cases ic
                     WHERE ic.user_id = u.id
+                ) + (
+                    SELECT COUNT(*)
+                    FROM korea_cases kc
+                    WHERE kc.user_id = u.id
                 ) AS case_count,
                 NULLIF(MAX(
                     COALESCE((
@@ -1015,6 +1142,11 @@ def adminUsers(_: dict = Depends(adminDependency)) -> dict:
                         SELECT MAX(ic.last_checked_at)
                         FROM ircc_cases ic
                         WHERE ic.user_id = u.id
+                    ), ''),
+                    COALESCE((
+                        SELECT MAX(kc.last_checked_at)
+                        FROM korea_cases kc
+                        WHERE kc.user_id = u.id
                     ), '')
                 ), '') AS last_checked_at
             FROM users u
@@ -1094,7 +1226,39 @@ def adminCases(_: dict = Depends(adminDependency)) -> dict:
         }
         for case in listIrccCases()
     ]
-    return {"cases": ceacCases + irccCases}
+    koreaCases = [
+        {
+            "id": case["id"],
+            "userId": case["userId"],
+            "displayName": case["displayName"],
+            "location": "Korea Visa Portal",
+            "applicationNum": case["lastApplicationNo"] or case["passportNumber"],
+            "passportNumber": case["passportNumber"],
+            "surname": "",
+            "receiveEmail": case["receiveEmail"],
+            "senderMode": case["senderMode"],
+            "isEnabled": case["isEnabled"],
+            "ceacAutoLockedByPassportSlot": False,
+            "ceacConsecutiveErrorCount": 0,
+            "emailNotificationsEnabled": case["emailNotificationsEnabled"],
+            "nextCheckAt": case["nextCheckAt"],
+            "lastCheckedAt": case["lastCheckedAt"],
+            "lastTriggerType": case["lastTriggerType"],
+            "lastStatus": case["lastStatus"] or None,
+            "lastDescription": case["lastErrorMessage"],
+            "lastCeacError": case["lastErrorMessage"],
+            "passportSlotMonitor": None,
+            "createdAt": case["createdAt"],
+            "updatedAt": case["updatedAt"],
+            "profileType": "korea",
+            "adminCaseKey": f"korea-{case['id']}",
+            "applicationNo": case["lastApplicationNo"],
+            "applicationDate": case["lastApplicationDate"],
+            "entryPurpose": case["lastEntryPurpose"],
+        }
+        for case in listKoreaCases()
+    ]
+    return {"cases": ceacCases + irccCases + koreaCases}
 
 
 @app.post("/api/admin/cases/{caseId}/restore-ceac-auto-query")
@@ -1198,6 +1362,32 @@ def adminQueryRuns(_: dict = Depends(adminDependency)) -> dict:
                 FROM ircc_query_runs r
                 JOIN ircc_cases c ON c.id = r.case_id
                 JOIN users u ON u.id = c.user_id
+                UNION ALL
+                SELECT
+                    2000000000 + r.id AS id,
+                    r.case_id,
+                    c.display_name,
+                    COALESCE(NULLIF(c.last_application_no, ''), c.passport_number) AS application_num,
+                    u.email AS user_email,
+                    r.started_at,
+                    r.finished_at,
+                    r.trigger_type,
+                    r.success,
+                    (
+                        SELECT h.status
+                        FROM korea_status_history h
+                        WHERE h.case_id = c.id
+                          AND h.fetched_at >= r.started_at
+                          AND h.fetched_at <= r.finished_at
+                        ORDER BY h.id DESC
+                        LIMIT 1
+                    ) AS status,
+                    r.error_message,
+                    r.duration_ms,
+                    'korea' AS profile_type
+                FROM korea_query_runs r
+                JOIN korea_cases c ON c.id = r.case_id
+                JOIN users u ON u.id = c.user_id
             )
             ORDER BY finished_at DESC, id DESC
             LIMIT 200
@@ -1257,6 +1447,29 @@ def adminQueryJobs(_: dict = Depends(adminDependency)) -> dict:
                     'ircc' AS profile_type
                 FROM ircc_query_jobs j
                 JOIN ircc_cases c ON c.id = j.case_id
+                JOIN users u ON u.id = c.user_id
+                WHERE j.status IN ('queued', 'running')
+                UNION ALL
+                SELECT
+                    2000000000 + j.id AS id,
+                    j.case_id,
+                    j.trigger_type,
+                    j.status,
+                    j.attempts,
+                    j.locked_at,
+                    j.locked_by,
+                    j.started_at,
+                    j.finished_at,
+                    j.error_message,
+                    j.created_at,
+                    j.updated_at,
+                    c.display_name,
+                    COALESCE(NULLIF(c.last_application_no, ''), c.passport_number) AS application_num,
+                    u.email AS user_email,
+                    u.worker_priority,
+                    'korea' AS profile_type
+                FROM korea_query_jobs j
+                JOIN korea_cases c ON c.id = j.case_id
                 JOIN users u ON u.id = c.user_id
                 WHERE j.status IN ('queued', 'running')
             )
@@ -1336,11 +1549,32 @@ def adminQueryJobs(_: dict = Depends(adminDependency)) -> dict:
                       WHERE j.case_id = c.id
                         AND j.status IN ('queued', 'running')
                   )
+                UNION ALL
+                SELECT
+                    'korea-' || c.id AS scheduled_id,
+                    c.id AS case_id,
+                    'korea_automatic' AS trigger_type,
+                    c.next_check_at,
+                    c.display_name,
+                    COALESCE(NULLIF(c.last_application_no, ''), c.passport_number) AS application_num,
+                    u.email AS user_email,
+                    u.worker_priority,
+                    'korea' AS profile_type
+                FROM korea_cases c
+                JOIN users u ON u.id = c.user_id
+                WHERE c.is_enabled = 1
+                  AND c.next_check_at IS NOT NULL
+                  AND c.next_check_at > ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM korea_query_jobs j
+                      WHERE j.case_id = c.id
+                        AND j.status IN ('queued', 'running')
+                  )
             )
             ORDER BY next_check_at ASC, worker_priority ASC, case_id ASC
             LIMIT 50
             """,
-            (nowIso, nowIso, nowIso),
+            (nowIso, nowIso, nowIso, nowIso),
         ).fetchall()
         finishedRows = connection.execute(
             """
@@ -1390,6 +1624,30 @@ def adminQueryJobs(_: dict = Depends(adminDependency)) -> dict:
                     'ircc' AS profile_type
                 FROM ircc_query_jobs j
                 JOIN ircc_cases c ON c.id = j.case_id
+                JOIN users u ON u.id = c.user_id
+                WHERE j.status IN ('succeeded', 'failed')
+                  AND j.finished_at IS NOT NULL
+                UNION ALL
+                SELECT
+                    2000000000 + j.id AS id,
+                    j.case_id,
+                    j.trigger_type,
+                    j.status,
+                    j.attempts,
+                    j.locked_at,
+                    j.locked_by,
+                    j.started_at,
+                    j.finished_at,
+                    j.error_message,
+                    j.created_at,
+                    j.updated_at,
+                    c.display_name,
+                    COALESCE(NULLIF(c.last_application_no, ''), c.passport_number) AS application_num,
+                    u.email AS user_email,
+                    u.worker_priority,
+                    'korea' AS profile_type
+                FROM korea_query_jobs j
+                JOIN korea_cases c ON c.id = j.case_id
                 JOIN users u ON u.id = c.user_id
                 WHERE j.status IN ('succeeded', 'failed')
                   AND j.finished_at IS NOT NULL

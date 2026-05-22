@@ -172,8 +172,10 @@ def nextProfileSortOrder(connection: Any, userId: int) -> int:
         SELECT MIN(sort_order) AS min_sort_order FROM ceac_cases WHERE user_id = ?
         UNION ALL
         SELECT MIN(sort_order) AS min_sort_order FROM ircc_cases WHERE user_id = ?
+        UNION ALL
+        SELECT MIN(sort_order) AS min_sort_order FROM korea_cases WHERE user_id = ?
         """,
-        (userId, userId),
+        (userId, userId, userId),
     ).fetchall()
     values = [int(row["min_sort_order"]) for row in rows if row["min_sort_order"] is not None]
     return (min(values) if values else 0) - 100
@@ -183,13 +185,15 @@ def reorderProfiles(userId: int, profiles: list[ProfileOrderItem]) -> None:
     with getConnection() as connection:
         ceacRows = connection.execute("SELECT id FROM ceac_cases WHERE user_id = ?", (userId,)).fetchall()
         irccRows = connection.execute("SELECT id FROM ircc_cases WHERE user_id = ?", (userId,)).fetchall()
+        koreaRows = connection.execute("SELECT id FROM korea_cases WHERE user_id = ?", (userId,)).fetchall()
         ownedKeys = {("ceac", int(row["id"])) for row in ceacRows}
         ownedKeys.update({("ircc", int(row["id"])) for row in irccRows})
+        ownedKeys.update({("korea", int(row["id"])) for row in koreaRows})
         requestedKeys = [(profile.profileType, int(profile.id)) for profile in profiles]
         if set(requestedKeys) != ownedKeys:
             raise ValueError("档案排序列表已过期，请刷新后重试。")
         for index, (profileType, profileId) in enumerate(requestedKeys):
-            table = "ceac_cases" if profileType == "ceac" else "ircc_cases"
+            table = {"ceac": "ceac_cases", "ircc": "ircc_cases", "korea": "korea_cases"}[profileType]
             connection.execute(
                 f"UPDATE {table} SET sort_order = ? WHERE id = ? AND user_id = ?",
                 (index * 100, profileId, userId),
@@ -274,7 +278,12 @@ def createCase(userId: int, payload: CeacCaseInput) -> dict[str, Any]:
         if user.get("role") != "admin":
             caseCountRow = connection.execute("SELECT COUNT(*) AS case_count FROM ceac_cases WHERE user_id = ?", (userId,)).fetchone()
             irccCaseCountRow = connection.execute("SELECT COUNT(*) AS case_count FROM ircc_cases WHERE user_id = ?", (userId,)).fetchone()
-            caseCount = int(caseCountRow["case_count"] if caseCountRow else 0) + int(irccCaseCountRow["case_count"] if irccCaseCountRow else 0)
+            koreaCaseCountRow = connection.execute("SELECT COUNT(*) AS case_count FROM korea_cases WHERE user_id = ?", (userId,)).fetchone()
+            caseCount = (
+                int(caseCountRow["case_count"] if caseCountRow else 0)
+                + int(irccCaseCountRow["case_count"] if irccCaseCountRow else 0)
+                + int(koreaCaseCountRow["case_count"] if koreaCaseCountRow else 0)
+            )
             caseLimit = PREMIUM_CASE_LIMIT if user.get("account_tier") == "premium" else STANDARD_CASE_LIMIT
             if caseCount >= caseLimit:
                 raise ValueError(f"当前账号最多可添加 {caseLimit} 个档案，请联系管理员升级账号。")
