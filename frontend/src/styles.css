@@ -893,25 +893,74 @@ select:focus {
 
 .case-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  background: var(--canvas);
+  padding: 12px;
+  padding-left: 10px;
+  background: var(--surface-1);
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: 10px;
   text-align: left;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
 }
 
 .case-row:hover {
+  background: var(--surface-2);
   border-color: var(--hairline-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .case-row.selected {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
   border-color: var(--hairline-strong);
+  border-left: 4px solid var(--primary);
+  padding-left: 7px;
+}
+
+.case-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--ink-subtle);
+  transition: all 0.2s;
+}
+
+.case-row.selected .case-row-icon {
+  background: var(--primary);
+  color: #fff;
+}
+
+.case-chevron {
+  color: var(--ink-tertiary);
+  opacity: 0;
+  transition: all 0.2s;
+  transform: translateX(-4px);
+}
+
+.case-row.selected .case-chevron {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--primary);
+}
+
+.case-order-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.case-row:hover .case-order-buttons,
+.case-order-buttons:focus-within {
+  opacity: 1;
 }
 
 .case-info {
@@ -939,12 +988,6 @@ select:focus {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
-}
-
-.case-order-buttons {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 
 .button.compact {
@@ -997,8 +1040,36 @@ select:focus {
 
 .metric {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
+  padding: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.metric.hover-card:hover {
+  background: var(--surface-2);
+  border-color: var(--hairline-strong);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.metric-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .metric .caption {
@@ -1008,6 +1079,7 @@ select:focus {
 .metric .body-sm {
   color: var(--ink-muted);
   overflow-wrap: anywhere;
+  font-weight: 500;
 }
 
 .metric-grid {
@@ -1096,6 +1168,18 @@ select:focus {
 .timeline {
   display: grid;
   gap: 0;
+  position: relative;
+  padding-left: 28px;
+}
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 9px;
+  width: 2px;
+  background: var(--hairline-strong);
 }
 
 .timeline-item {
@@ -1103,6 +1187,21 @@ select:focus {
   gap: 8px;
   padding: 24px 0;
   border-bottom: 1px solid var(--hairline);
+  position: relative;
+}
+
+.timeline-item::before {
+  content: "";
+  position: absolute;
+  top: 28px;
+  left: -23px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface-1);
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+  box-sizing: border-box;
+  z-index: 1;
 }
 
 .timeline-item:last-child {
@@ -1624,16 +1723,50 @@ select:focus {
 }
 
 .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   padding: 48px 24px;
   text-align: center;
   color: var(--ink-subtle);
-  border: 1px dashed var(--hairline);
+  border: 1px dashed var(--hairline-strong);
   border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.empty-state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink-subtle) 10%, transparent);
+  color: var(--ink-muted);
+}
+
+.empty-state .headline {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+
+.empty-state p {
+  color: var(--ink-subtle);
+  font-size: 14px;
 }
 
 .empty-state.compact {
-  padding: 18px 12px;
-  font-size: 13px;
+  padding: 24px 16px;
+  gap: 12px;
+}
+
+.empty-state.compact .empty-state-icon {
+  width: 48px;
+  height: 48px;
 }
 
 /* Utils */

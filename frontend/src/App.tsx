@@ -19,7 +19,15 @@ import {
   Sun,
   Trash2,
   UserRound,
+  User,
   X,
+  MapPin,
+  FileText,
+  Clock,
+  Bell,
+  FolderOpen,
+  Server,
+  CloudLightning,
 } from "lucide-react";
 import { ceacLocations } from "./locations";
 
@@ -2842,7 +2850,7 @@ export function App() {
                     return (
                       <div
                         key={`${profile.profileType}-${item.id}`}
-                        className={`case-row ${isSelected ? "selected" : ""}`}
+                        className={`case-row hover-card ${isSelected ? "selected" : ""}`}
                         onClick={() => {
                           setIsCreatingProfile(false);
                           if (isCeac) {
@@ -2860,6 +2868,9 @@ export function App() {
                           }
                         }}
                       >
+                        <div className="case-row-icon">
+                          {isCeac ? <Landmark size={20} /> : isKorea ? <LucideMap size={20} /> : <TreePine size={20} />}
+                        </div>
                         <div className="case-info">
                           <div className="case-name">{item.displayName}</div>
                           <div className="case-meta">{caseMeta}</div>
@@ -2894,11 +2905,17 @@ export function App() {
                               <ArrowDown size={14} />
                             </button>
                           </div>
+                          <ChevronRight className="case-chevron" size={18} />
                         </div>
                       </div>
                     );
                   })}
-                  {orderedProfiles.length === 0 && <p className="empty-state">{t("noCases")}</p>}
+                  {orderedProfiles.length === 0 && (
+                    <div className="empty-state">
+                      <div className="empty-state-icon"><FolderOpen size={24} /></div>
+                      <h3 className="headline">{t("noCases")}</h3>
+                    </div>
+                  )}
                 </div>
               </section>
               <SupportPanel t={t} />
@@ -3000,24 +3017,24 @@ export function App() {
                         </div>
                       )}
                       <div className="two-col metric-grid">
-                        <Metric label={t("locationMetric")} value={selectedCase.location} />
-                        <Metric label={`${t("applicationId")} / ${t("passport")}`} value={`${selectedCase.applicationNum} / ${selectedCase.passportNumber}`} />
+                        <Metric icon={<MapPin size={14} />} label={t("locationMetric")} value={selectedCase.location} />
+                        <Metric icon={<FileText size={14} />} label={`${t("applicationId")} / ${t("passport")}`} value={`${selectedCase.applicationNum} / ${selectedCase.passportNumber}`} />
                       </div>
                       <div className="two-col metric-grid">
-                        <Metric label={t("notifyEmail")} value={selectedCase.receiveEmail} />
-                        <Metric label={t("status")}>
+                        <Metric icon={<Mail size={14} />} label={t("notifyEmail")} value={selectedCase.receiveEmail} />
+                        <Metric icon={<Activity size={14} />} label={t("status")}>
                           <span className={getStatusBadgeClass(selectedCase.lastStatus, "metric-status")}>
                             {selectedCase.lastStatus || t("noStatus")}
                           </span>
                         </Metric>
                       </div>
                       <div className="two-col metric-grid">
-                        <Metric label={t("lastCheckedAt")} value={formatTime(selectedCase.lastCheckedAt, languageMode)} />
-                        <Metric label={t("lastCheckMode")} value={formatTriggerType(selectedCase.lastTriggerType, t)} />
+                        <Metric icon={<Clock size={14} />} label={t("lastCheckedAt")} value={formatTime(selectedCase.lastCheckedAt, languageMode)} />
+                        <Metric icon={<Activity size={14} />} label={t("lastCheckMode")} value={formatTriggerType(selectedCase.lastTriggerType, t)} />
                       </div>
                       <div className="two-col metric-grid">
-                        <Metric label={t("nextCheckAt")} value={formatTime(selectedCase.nextCheckAt, languageMode)} />
-                        <Metric label={t("emailPushSetting")} value={selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff")} />
+                        <Metric icon={<Clock size={14} />} label={t("nextCheckAt")} value={formatTime(selectedCase.nextCheckAt, languageMode)} />
+                        <Metric icon={<Bell size={14} />} label={t("emailPushSetting")} value={selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff")} />
                       </div>
                       <div className="settings-row">
                         <label className="checkbox">
@@ -3068,7 +3085,12 @@ export function App() {
                           <div className="timeline-desc">{record.description}</div>
                         </div>
                       ))}
-                      {history.length === 0 && <p className="empty-state">{t("noHistory")}</p>}
+                      {history.length === 0 && (
+                        <div className="empty-state">
+                          <div className="empty-state-icon"><History size={24} /></div>
+                          <p>{t("noHistory")}</p>
+                        </div>
+                      )}
                     </div>
                   </section>
                 </>
@@ -3456,7 +3478,7 @@ function KoreaCaseDetail(props: {
         <div className="panel-title">
           <div>
             <h2 className="headline">{props.targetCase.displayName}</h2>
-            <p className="form-intro compact">{props.t("countryKorea")} · {props.t("koreaVisaTitle")}</p>
+            <p className="form-intro compact">{props.t("countryKorea")} · {props.t("koreaVisaTitle")} · {props.t("irccAlphaLabel")}</p>
           </div>
           <div className="row-actions">
             <button className="button secondary" onClick={() => props.runQuery(props.targetCase.id)} disabled={props.isBusy}>
@@ -3477,28 +3499,28 @@ function KoreaCaseDetail(props: {
             </div>
           )}
           <div className="two-col metric-grid">
-            <Metric label={`${props.t("passport")} / ${props.t("koreaEnglishName")}`} value={`${props.targetCase.passportNumber} / ${props.targetCase.englishName}`} />
-            <Metric label={props.t("koreaBirthDate")} value={props.targetCase.birthDate} />
+            <Metric icon={<FileText size={14} />} label={`${props.t("passport")} / ${props.t("koreaEnglishName")}`} value={`${props.targetCase.passportNumber} / ${props.targetCase.englishName}`} />
+            <Metric icon={<Clock size={14} />} label={props.t("koreaBirthDate")} value={props.targetCase.birthDate} />
           </div>
           <div className="two-col metric-grid">
-            <Metric label={props.t("koreaApplicationNo")} value={props.targetCase.lastApplicationNo || "-"} />
-            <Metric label={props.t("koreaApplicationDate")} value={props.targetCase.lastApplicationDate || "-"} />
+            <Metric icon={<FileText size={14} />} label={props.t("koreaApplicationNo")} value={props.targetCase.lastApplicationNo || "-"} />
+            <Metric icon={<Clock size={14} />} label={props.t("koreaApplicationDate")} value={props.targetCase.lastApplicationDate || "-"} />
           </div>
           <div className="two-col metric-grid">
-            <Metric label={props.t("koreaEntryPurpose")} value={props.targetCase.lastEntryPurpose || "-"} />
-            <Metric label={props.t("status")}>
+            <Metric icon={<MapPin size={14} />} label={props.t("koreaEntryPurpose")} value={props.targetCase.lastEntryPurpose || "-"} />
+            <Metric icon={<Activity size={14} />} label={props.t("status")}>
               <span className={getStatusBadgeClass(props.targetCase.lastStatus, "metric-status")}>
                 {props.targetCase.lastStatus || props.t("noStatus")}
               </span>
             </Metric>
           </div>
           <div className="two-col metric-grid">
-            <Metric label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
-            <Metric label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
+            <Metric icon={<Clock size={14} />} label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
+            <Metric icon={<Activity size={14} />} label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
           </div>
           <div className="two-col metric-grid">
-            <Metric label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
-            <Metric label={props.t("emailPushSetting")} value={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")} />
+            <Metric icon={<Clock size={14} />} label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
+            <Metric icon={<Bell size={14} />} label={props.t("emailPushSetting")} value={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")} />
           </div>
           <div className="settings-row">
             <label className="checkbox">
@@ -3530,7 +3552,12 @@ function KoreaCaseDetail(props: {
               <span>{formatTime(item.fetchedAt, props.languageMode)}</span>
             </div>
           ))}
-          {props.history.length === 0 && <p className="empty-state">{props.t("koreaNoHistory")}</p>}
+          {props.history.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon"><History size={24} /></div>
+              <p>{props.t("koreaNoHistory")}</p>
+            </div>
+          )}
         </div>
       </section>
     </>
@@ -3636,20 +3663,20 @@ function IrccCaseDetail(props: {
             </div>
           )}
           <div className="two-col metric-grid ircc-metric-grid">
-            <Metric label={props.t("irccApplicationNumber")} value={props.targetCase.applicationNumber || "-"} />
-            <Metric label={props.t("irccAppId")} value={props.targetCase.appId} />
+            <Metric icon={<FileText size={14} />} label={props.t("irccApplicationNumber")} value={props.targetCase.applicationNumber || "-"} />
+            <Metric icon={<FileText size={14} />} label={props.t("irccAppId")} value={props.targetCase.appId} />
           </div>
           <div className="two-col metric-grid ircc-metric-grid">
-            <Metric label={props.t("irccPrincipalApplicant")} value={props.targetCase.principalApplicant || String(applicant.fullName || "-")} />
-            <Metric label={props.t("irccPortalEmail")} value={props.targetCase.portalEmailMasked} />
+            <Metric icon={<User size={14} />} label={props.t("irccPrincipalApplicant")} value={props.targetCase.principalApplicant || String(applicant.fullName || "-")} />
+            <Metric icon={<Mail size={14} />} label={props.t("irccPortalEmail")} value={props.targetCase.portalEmailMasked} />
           </div>
           <div className="two-col metric-grid ircc-metric-grid">
-            <Metric label={props.t("notifyEmail")} value={props.targetCase.receiveEmail} />
-            <Metric label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
+            <Metric icon={<Mail size={14} />} label={props.t("notifyEmail")} value={props.targetCase.receiveEmail} />
+            <Metric icon={<Activity size={14} />} label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
           </div>
           <div className="two-col metric-grid ircc-metric-grid">
-            <Metric label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
-            <Metric label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
+            <Metric icon={<Clock size={14} />} label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
+            <Metric icon={<Clock size={14} />} label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
           </div>
           <div className="settings-row">
             <label className="checkbox">
@@ -3772,7 +3799,12 @@ function IrccCaseDetail(props: {
               </div>
             );
           })}
-          {messages.length === 0 && <p className="empty-state">{props.t("irccNoHistory")}</p>}
+          {messages.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon"><Mail size={24} /></div>
+              <p>{props.t("irccNoHistory")}</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -3791,7 +3823,12 @@ function IrccCaseDetail(props: {
               <div className="timeline-desc">{translateIrccChangeSummary(record.changeSummary, props.languageMode)}</div>
             </div>
           ))}
-          {props.history.length === 0 && <p className="empty-state">{props.t("irccNoHistory")}</p>}
+          {props.history.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon"><History size={24} /></div>
+              <p>{props.t("irccNoHistory")}</p>
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -3881,10 +3918,13 @@ function LanguageButton(props: { languageMode: LanguageMode; setLanguageMode: (m
   );
 }
 
-function Metric(props: { label: string; value?: string; children?: React.ReactNode }) {
+function Metric(props: { label: string; value?: string; children?: React.ReactNode; icon?: React.ReactNode }) {
   return (
-    <div className="metric">
-      <div className="caption">{props.label}</div>
+    <div className="metric hover-card">
+      <div className="metric-header">
+        {props.icon && <div className="metric-icon">{props.icon}</div>}
+        <div className="caption">{props.label}</div>
+      </div>
       <div className="body-sm">{props.children ?? props.value}</div>
     </div>
   );
@@ -5007,9 +5047,9 @@ function KoreaCaseFormView(props: {
   const setForm = props.setForm;
   return (
     <form className="stack" onSubmit={props.saveCase}>
-      <div className="official-form-note">
+      <div className="official-form-note alpha-note">
         <strong>{props.t("koreaVisaTitle")}</strong>
-        <span>{props.t("countryKorea")}</span>
+        <span>{props.t("irccAlphaLabel")}</span>
       </div>
       <div className="form-section">
         <p className="section-help">{props.t("koreaQueryHint")}</p>
