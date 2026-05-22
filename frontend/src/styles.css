@@ -892,8 +892,8 @@ select:focus {
 }
 
 .case-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 12px;
@@ -922,6 +922,7 @@ select:focus {
 
 .case-row-icon {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 36px;
@@ -965,6 +966,7 @@ select:focus {
 
 .case-info {
   display: grid;
+  flex: 1 1 120px;
   gap: 4px;
   min-width: 0;
 }
@@ -973,21 +975,22 @@ select:focus {
   font-weight: 500;
   color: var(--ink);
   font-size: 14px;
-  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .case-meta {
   font-size: 13px;
   color: var(--ink-subtle);
-  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .case-row-actions {
   display: flex;
+  flex: 1 0 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  min-width: 0;
+  margin-left: auto;
 }
 
 .button.compact {
