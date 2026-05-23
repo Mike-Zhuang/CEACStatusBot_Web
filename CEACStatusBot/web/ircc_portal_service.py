@@ -239,6 +239,80 @@ def formatIrccValue(value: Any) -> str:
     return str(value)
 
 
+def maskTail(value: Any, visible: int = 4) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= visible:
+        return "*" * len(text)
+    return f"{'*' * (len(text) - visible)}{text[-visible:]}"
+
+
+def formatBiometricChange(previousApplicant: dict[str, Any], currentApplicant: dict[str, Any]) -> list[str]:
+    changes: list[str] = []
+    previousNumber = previousApplicant.get("biometricNumber")
+    currentNumber = currentApplicant.get("biometricNumber")
+    if previousNumber != currentNumber:
+        if currentNumber:
+            tail = maskTail(currentNumber)[-4:]
+            action = "已生成" if not previousNumber else "已更新"
+            changes.append(f"指纹编号{action}（末 4 位：{tail}）")
+        elif previousNumber:
+            changes.append("指纹编号已移除")
+
+    previousEnrolmentDate = previousApplicant.get("dateOfBiometricEnrolment")
+    currentEnrolmentDate = currentApplicant.get("dateOfBiometricEnrolment")
+    if previousEnrolmentDate != currentEnrolmentDate and currentEnrolmentDate:
+        changes.append(f"录指纹日期：{currentEnrolmentDate}")
+
+    previousExpiryDate = previousApplicant.get("biometricExpiryDate")
+    currentExpiryDate = currentApplicant.get("biometricExpiryDate")
+    if previousExpiryDate != currentExpiryDate and currentExpiryDate:
+        changes.append(f"指纹有效期至：{currentExpiryDate}")
+
+    return changes
+
+
+def getApplicantMatchKey(applicant: dict[str, Any], index: int) -> str:
+    for key in ("appNumber", "uci", "fullName"):
+        value = applicant.get(key)
+        if value:
+            return f"{key}:{value}"
+    return f"index:{index}"
+
+
+def formatApplicantChanges(previousApplicants: Any, currentApplicants: Any) -> list[str]:
+    if not isinstance(previousApplicants, list) or not isinstance(currentApplicants, list):
+        return ["申请人信息已更新。"]
+
+    previousByKey = {
+        getApplicantMatchKey(applicant, index): applicant
+        for index, applicant in enumerate(previousApplicants)
+        if isinstance(applicant, dict)
+    }
+    lines: list[str] = []
+    hasGenericChange = len(previousApplicants) != len(currentApplicants)
+
+    for index, currentApplicant in enumerate(currentApplicants):
+        if not isinstance(currentApplicant, dict):
+            hasGenericChange = True
+            continue
+        matchKey = getApplicantMatchKey(currentApplicant, index)
+        previousApplicant = previousByKey.get(matchKey)
+        if previousApplicant is None:
+            hasGenericChange = True
+            continue
+        biometricChanges = formatBiometricChange(previousApplicant, currentApplicant)
+        if biometricChanges:
+            lines.append(f"申请人信息已更新：{'；'.join(biometricChanges)}。")
+        elif stableHash(previousApplicant) != stableHash(currentApplicant):
+            hasGenericChange = True
+
+    if hasGenericChange and not lines:
+        lines.append("申请人信息已更新。")
+    return list(dict.fromkeys(lines))
+
+
 def normalizeMessage(message: dict[str, Any]) -> dict[str, Any]:
     details = message.get("messageDetails") if isinstance(message.get("messageDetails"), dict) else {}
     attachment = details.get("attachment") if isinstance(details.get("attachment"), dict) else {}
@@ -412,6 +486,8 @@ def buildChangeSummary(previous: dict[str, Any] | None, current: dict[str, Any])
             previousMessages = previousValue or []
             currentMessages = currentValue or []
             changes.append(f"申请消息发生变化：{len(previousMessages)} 条 -> {len(currentMessages)} 条。")
+        elif key == "listOfApplicants":
+            changes.extend(formatApplicantChanges(previousValue, currentValue))
         else:
             changes.append(f"{label} 发生变化：{formatIrccValue(previousValue)} -> {formatIrccValue(currentValue)}。")
     return "\n".join(changes[:20]) if changes else "后台 Ghost update：快照发生变化，但七项状态、申请消息和申请人信息暂无可见变化。"

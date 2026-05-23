@@ -985,12 +985,19 @@ select:focus {
 }
 
 .case-row-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(112px, 150px) auto auto;
   flex: 1 0 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-left: auto;
+}
+
+.profile-status-slot {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .button.compact {
@@ -1003,12 +1010,17 @@ select:focus {
 .status-badge {
   display: inline-flex;
   align-items: center;
+  min-height: 24px;
+  max-width: 100%;
   padding: 2px 8px;
   background: var(--surface-2);
   color: var(--ink-muted);
   border-radius: 9999px;
   font-size: 12px;
   font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1035,6 +1047,11 @@ select:focus {
 .status-badge.status-issued {
   color: var(--semantic-issued);
   background: color-mix(in srgb, var(--semantic-issued) 12%, transparent);
+}
+
+.status-badge.status-idle {
+  color: var(--ink-subtle);
+  background: var(--surface-2);
 }
 
 .status-badge.metric-status {
@@ -1231,6 +1248,16 @@ select:focus {
 .timeline-desc {
   color: var(--ink-muted);
   font-size: 14px;
+}
+
+.timeline-desc-list {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-desc-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Admin */
@@ -2145,8 +2172,13 @@ select:focus {
   }
 
   .case-row-actions {
+    grid-template-columns: minmax(0, 1fr) auto auto;
     justify-content: space-between;
     width: 100%;
+  }
+
+  .profile-status-slot {
+    justify-content: flex-start;
   }
 
   .status-badge {

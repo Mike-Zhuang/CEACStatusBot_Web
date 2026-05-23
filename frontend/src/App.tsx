@@ -793,6 +793,7 @@ const translations = {
     statusHistory: "Status history",
     statusMonitoring: "Visa Status Check",
     success: "Success",
+    irccSnapshotSaved: "Snapshot saved",
     systemLogs: "System query logs",
     workerQueue: "Worker queue",
     workerQueueEmpty: "No queued or running jobs",
@@ -1055,6 +1056,7 @@ const translations = {
     statusHistory: "状态历史",
     statusMonitoring: "Visa Status Check",
     success: "成功",
+    irccSnapshotSaved: "已获取快照",
     systemLogs: "系统监控日志",
     workerQueue: "Worker 队列",
     workerQueueEmpty: "当前没有排队或运行中的任务",
@@ -1393,7 +1395,7 @@ function formatAccountTier(value: AccountTier, t: (key: TranslationKey) => strin
   return value === "premium" ? t("accountTierPremium") : t("accountTierStandard");
 }
 
-function getStatusTone(status: string | null | undefined): "issued" | "approved" | "refused" | "" {
+function getStatusTone(status: string | null | undefined): "issued" | "approved" | "refused" | "idle" | "" {
   const normalized = (status ?? "").trim().toLowerCase();
   if (normalized === "issued") {
     return "issued";
@@ -1403,6 +1405,9 @@ function getStatusTone(status: string | null | undefined): "issued" | "approved"
   }
   if (normalized === "refused") {
     return "refused";
+  }
+  if (normalized.includes("暂无查询资料") || normalized.includes("no data")) {
+    return "idle";
   }
   return "";
 }
@@ -2840,7 +2845,7 @@ export function App() {
                     const statusNode = profile.profileType === "ceac"
                       ? <span className={getStatusBadgeClass(profile.case.lastStatus)}>{profile.case.lastStatus ?? t("waitFirstQuery")}</span>
                       : profile.profileType === "ircc"
-                        ? <span className="status-badge">{profile.case.lastSnapshotHash ? t("success") : t("waitFirstQuery")}</span>
+                        ? <span className="status-badge">{profile.case.lastSnapshotHash ? t("irccSnapshotSaved") : t("waitFirstQuery")}</span>
                         : <span className={getStatusBadgeClass(profile.case.lastStatus)}>{profile.case.lastStatus || t("waitFirstQuery")}</span>;
                     const caseMeta = profile.profileType === "ceac"
                       ? `${t("countryUnitedStates")} · ${profile.case.applicationNum || t("missingCaseNumber")}`
@@ -2876,7 +2881,7 @@ export function App() {
                           <div className="case-meta">{caseMeta}</div>
                         </div>
                         <div className="case-row-actions">
-                          {statusNode}
+                          <div className="profile-status-slot">{statusNode}</div>
                           <div className="case-order-buttons" aria-label={languageMode === "zh" ? "调整档案顺序" : "Reorder profiles"}>
                             <button
                               type="button"
@@ -3362,6 +3367,22 @@ function translateIrccChangeSummary(value: string, languageMode: LanguageMode): 
     .replace(/）/g, ")");
 }
 
+function sanitizeIrccChangeSummaryLine(value: string, languageMode: LanguageMode): string {
+  const hasRawApplicantDiff = /(\[\s*\{|\{\s*['"]?(fullName|uci|appNumber|biometricNumber)['"]?\s*:)/.test(value)
+    && /(-&gt;|->)/.test(value);
+  if (hasRawApplicantDiff) {
+    return languageMode === "zh" ? "申请人信息已更新。" : "Applicant information updated.";
+  }
+  return value.trim();
+}
+
+function formatIrccChangeSummaryLines(value: string, languageMode: LanguageMode): string[] {
+  return value
+    .split(/\n+/)
+    .map((line) => sanitizeIrccChangeSummaryLine(translateIrccChangeSummary(line, languageMode), languageMode))
+    .filter(Boolean);
+}
+
 function stripHtmlText(value: unknown): string {
   const raw = String(value ?? "");
   return raw
@@ -3820,7 +3841,11 @@ function IrccCaseDetail(props: {
                 <span className="timeline-time">{formatTime(record.fetchedAt, props.languageMode)}</span>
                 <span className={`status-badge ${record.notificationSent ? "success" : ""}`}>{record.notificationSent ? props.t("notificationSent") : props.t("notificationNotSent")}</span>
               </div>
-              <div className="timeline-desc">{translateIrccChangeSummary(record.changeSummary, props.languageMode)}</div>
+              <div className="timeline-desc-list">
+                {formatIrccChangeSummaryLines(record.changeSummary, props.languageMode).map((line, index) => (
+                  <div className="timeline-desc timeline-desc-line" key={index}>{line}</div>
+                ))}
+              </div>
             </div>
           ))}
           {props.history.length === 0 && (
