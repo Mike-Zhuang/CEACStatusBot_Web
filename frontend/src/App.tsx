@@ -3350,6 +3350,7 @@ function translateIrccChangeSummary(value: string, languageMode: LanguageMode): 
     .replace(/首页 Ghost update：首页 submitted applications 更新时间从 (.*?) 变为 (.*?)；详情页暂无可见变化。/g, "Home ghost update: submitted applications updated time changed from $1 to $2; detail page did not show visible changes.")
     .replace(/首页 Ghost update：首页 submitted applications 更新时间从 (.*?) 变为 (.*?)。/g, "Home ghost update: submitted applications updated time changed from $1 to $2.")
     .replace(/Ghost update：首页更新时间从 (.*?) 变为 (.*?)。/g, "Home ghost update: home updated time changed from $1 to $2.")
+    .replace(/IRCC Portal 原始时间/g, "IRCC Portal original time")
     .replace(/申请消息发生变化：(\d+) 条 -> (\d+) 条。/g, "Application messages changed: $1 -> $2 message(s).");
 
   for (const [zhLabel, enLabel] of Object.entries(irccChangeLabelMap).sort((a, b) => b[0].length - a[0].length)) {
@@ -3373,7 +3374,9 @@ function sanitizeIrccChangeSummaryLine(value: string, languageMode: LanguageMode
   if (hasRawApplicantDiff) {
     return languageMode === "zh" ? "申请人信息已更新。" : "Applicant information updated.";
   }
-  return value.trim();
+  return value
+    .replace(/，时间：(?=\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2})/g, languageMode === "zh" ? "，IRCC Portal 原始时间：" : ", IRCC Portal original time: ")
+    .trim();
 }
 
 function formatIrccChangeSummaryLines(value: string, languageMode: LanguageMode): string[] {
@@ -3470,7 +3473,8 @@ function readIrccStatus(status: unknown, languageMode: LanguageMode): string {
   if (status && typeof status === "object" && "status" in status) {
     const value = String((status as { status?: unknown }).status ?? "");
     const timeStamp = String((status as { timeStamp?: unknown }).timeStamp ?? "");
-    return `${formatIrccCode(value, languageMode)}${timeStamp ? ` · ${formatTime(timeStamp, languageMode)}` : ""}`;
+    const timeLabel = languageMode === "zh" ? "IRCC Portal 原始时间" : "IRCC Portal original time";
+    return `${formatIrccCode(value, languageMode)}${timeStamp ? ` · ${timeLabel}: ${timeStamp}` : ""}`;
   }
   return status == null || status === "" ? "-" : JSON.stringify(status);
 }

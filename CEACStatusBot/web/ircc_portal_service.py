@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import random
+import re
 import secrets as stdlibSecrets
 import uuid
 from base64 import b64decode, b64encode
@@ -80,6 +81,11 @@ STATUS_LABELS = {
 }
 
 IRCC_GHOST_UPDATE_KEYS = {"homeUpdatedDate"}
+IRCC_RAW_APPLICANT_DIFF_PATTERN = re.compile(
+    r"(\[\s*\{|\{\s*['\"]?(?:fullName|uci|appNumber|biometricNumber)['\"]?\s*:).*(?:->|-&gt;)",
+    re.IGNORECASE,
+)
+IRCC_LEGACY_STATUS_TIME_PATTERN = re.compile(r"，时间：(?=\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})")
 
 # 这些 code/key 来自 IRCC Portal 当前前端 bundle（用户提供 HAR 中的 main-es2015）。
 # IRCC 未承诺它们是公开稳定 API；未知 code 仍会保留原始值显示。
@@ -231,7 +237,7 @@ def formatIrccValue(value: Any) -> str:
         statusValue = str(value.get("status") or "")
         label = STATUS_CODE_MAP.get(statusValue, f"未知状态码：{statusValue}" if statusValue else "空") or "-"
         timeStamp = value.get("timeStamp")
-        return f"{label}（{statusValue}）" + (f"，时间：{timeStamp}" if timeStamp else "")
+        return f"{label}（{statusValue}）" + (f"，IRCC Portal 原始时间：{timeStamp}" if timeStamp else "")
     if isinstance(value, str):
         return STATUS_CODE_MAP.get(value, value) or "-"
     if value in (None, ""):
@@ -311,6 +317,19 @@ def formatApplicantChanges(previousApplicants: Any, currentApplicants: Any) -> l
     if hasGenericChange and not lines:
         lines.append("申请人信息已更新。")
     return list(dict.fromkeys(lines))
+
+
+def sanitizeIrccChangeSummaryForDisplay(summary: str) -> str:
+    cleanedLines: list[str] = []
+    for rawLine in str(summary or "").splitlines():
+        line = rawLine.strip()
+        if not line:
+            continue
+        if IRCC_RAW_APPLICANT_DIFF_PATTERN.search(line):
+            cleanedLines.append("申请人信息已更新。")
+            continue
+        cleanedLines.append(IRCC_LEGACY_STATUS_TIME_PATTERN.sub("，IRCC Portal 原始时间：", line))
+    return "\n".join(dict.fromkeys(cleanedLines))
 
 
 def normalizeMessage(message: dict[str, Any]) -> dict[str, Any]:
@@ -1123,7 +1142,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                     try:
                         emailTimezone = getUserEmailTimezone(int(row["user_id"]), connection)
                         queryTime = formatEmailTime(finishedIso, emailTimezone)
-                        emailChangeSummary = formatEmailTextTimes(changeSummary, emailTimezone)
+                        emailChangeSummary = formatEmailTextTimes(sanitizeIrccChangeSummaryForDisplay(changeSummary), emailTimezone)
                         subject = f"[IRCC Alpha] {row['application_number'] or row['app_id']} {irccEmailSubjectAction(changeType)}"
                         body = "\n".join(
                             [
@@ -1475,7 +1494,7 @@ def sendCurrentIrccEmail(caseId: int, userId: int | None = None) -> dict[str, An
             f"快照时间：{formatCaseEmailTime(case, latest['fetched_at'])}",
             "",
             "最近变化摘要：",
-            formatEmailTextTimes(latest["change_summary"], emailTimezone),
+            formatEmailTextTimes(sanitizeIrccChangeSummaryForDisplay(latest["change_summary"]), emailTimezone),
             "",
             "当前状态摘要：",
             formatEmailTextTimes(summarizeSnapshot(snapshot), emailTimezone),
