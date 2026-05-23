@@ -1,44 +1,60 @@
 # CEACStatusBot Web
 
-🎉 **Deployed Online:** The service is already deployed and available online. You can directly use it at [ceac.mikezhuang.cn](https://ceac.mikezhuang.cn).
+CEACStatusBot Web is a self-hosted visa status monitoring console for individuals and small operators. It combines U.S. visa CEAC status tracking, Canada IRCC Portal Alpha monitoring, Korea visa status checks, email notifications, account management, and an admin console in one deployable web application.
+
+The public service is available at [ceac.mikezhuang.cn](https://ceac.mikezhuang.cn).
 
 [中文文档](README.Chinese.md)
 
-> **Nonprofit personal project.** If CEACStatusBot helps you, voluntary support helps cover server and maintenance costs. Premium can be upgraded by sharing a Xiaohongshu post with the site link, screenshots, and your experience, then contacting the admin; or by leaving your account email in the donation note for manual review. Contact: `ceac-admin@mikezhuang.cn`.
->
-> <img src="frontend/public/support/buy-me-a-coffee.jpg" alt="Support CEACStatusBot" width="180" />
->
-> Small print: this is a non-official service and is not affiliated with the U.S. Department of State, CEAC, GTS, or CITIC Bank. Donations are voluntary support, not a purchase of official services, and do not guarantee visa results, passport progress, slot availability, or booking success.
+> This is a non-official product and is not affiliated with the U.S. Department of State, CEAC, GTS, IRCC, the Korea Visa Portal, CITIC Bank, or any government agency. Use it only if you understand and accept the risks of third-party query automation and cross-border data transmission.
 
-CEACStatusBot Web is a self-hosted visa status monitoring dashboard, mainly for U.S. visa CEAC status monitoring, with a new Canada IRCC Portal Alpha monitor. It provides account registration and login, email verification codes, password reset, multiple visa profiles, status history, email notifications, an admin console, and a production security baseline for deployment on your own server.
+## Support
 
-This project is a modified version released under the GPLv3 license. It preserves and adapts ideas around CEAC status querying and captcha recognition from the original [Andision/CEACStatusBot](https://github.com/Andision/CEACStatusBot) project.
+CEACStatusBot is maintained as a nonprofit personal project. If it saves you time or reduces monitoring stress, voluntary support helps cover hosting and maintenance costs.
 
-## Features
+Contact: `ceac-admin@mikezhuang.cn`
 
-- FastAPI backend, SQLite database, APScheduler queue scheduler, and a standalone Worker for query jobs.
-- React + Vite + TypeScript frontend console with dark/light themes and Chinese/English language switching.
-- Open registration with email verification for both signup and password reset. New registrations must explicitly accept the user terms and disclaimer after opening a formal, sectioned terms dialog; the same terms remain available from the account page, and opening the full terms while signed in records acceptance of the current version.
-- Standard accounts can create 1 CEAC profile, and automatic checks still run about once per hour; after `Issued`, checks slow to once per day and stop after one week. Standard accounts get 1 manual refresh per day and a limited daily email quota. Premium accounts can create 5 profiles and use high query/email quotas. Admins are exempt.
-- Enabled profiles are queued once per hour at a random minute. After a profile enters `Issued`, automatic CEAC checks slow down to once per day and stop automatically after one week.
-- The public login page shows a non-official, nonprofit, learning/research-use notice instead of donation QR content. The donation QR remains available only after login and in positive status / GTS notification emails.
-- The unified Terms of Use include cross-border query authorization: CEAC/GTS checks may submit necessary profile fields to official or third-party systems outside mainland China.
-- When a CEAC profile enters `Approved` or `Issued`, status emails invite the user to enter UID/HAL and enable GTS passport appointment slot monitoring.
-- GTS passport appointment monitoring is bound to a CEAC profile. It polls about every 1-30 minutes during normal hours, with separate switches for automatic polling and slot-change email notifications. It only detects and notifies; it does not auto-book, hold, or grab slots. Once slots are found, polling slows to a randomized 50-70 minute interval until the user confirms they have booked and stops monitoring.
-- Canada IRCC Portal monitoring is marked Alpha and currently supports only `https://portal-portail.apps.cic.gc.ca`. The system encrypts the user-authorized IRCC Portal email, password, and token cache, then randomly polls submitted applications, application status, and application messages; any snapshot-field change is written to history and can trigger email notification. This feature is not fully tested and should be used carefully. Future support is planned for IRCC Portal – New version and GCKey.
-- `Approved`, `Issued`, Issued auto-stop, and GTS slot emails include a small nonprofit support note and the same donation QR image used on the website. Negative CEAC statuses such as `Refused` do not include the donation block.
-- Creating an enabled profile automatically queues one initial CEAC query. `Query now` creates manual jobs. The frontend polls job status and refreshes the profile and timeline after completion. Non-admin accounts have a daily manual query limit.
-- No email is sent when status is unchanged. Status changes or CEAC last-updated changes are written to history and trigger notifications.
-- Supports both a system default SMTP sender and per-user custom SMTP settings.
-- Admins can manage account tiers and Worker priority, view profile summaries, inspect queued/running Worker jobs plus upcoming CEAC/GTS jobs expected to enter the queue, system query logs, security events, and default sender configuration.
-- Query logs record manual/automatic sources, absolute timestamps, duration, success/failure, and error messages.
-- The frontend includes a custom SVG favicon/brand icon and an optional ICP record footer link.
+<img src="frontend/public/support/buy-me-a-coffee.jpg" alt="Support CEACStatusBot" width="180" />
 
-## Account Initialization
+## Overview
 
-Local demo accounts are not created by default. For public deployments, create accounts through the registration flow, or create the first admin account directly in the production database.
+CEACStatusBot is designed around one idea: visa monitoring should feel like a product, not a pile of scripts. The app gives users a single place to create profiles, trigger checks, review timelines, receive notifications, and manage sender settings. Operators get queue visibility, account controls, system logs, and a production-ready security baseline.
 
-If you only need local demo accounts during development, temporarily set `SEED_DEFAULT_USERS=true` and provide `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD`. Do not enable this switch in public deployments.
+## Supported Flows
+
+- U.S. visa CEAC status monitoring
+- GTS passport appointment slot monitoring after `Approved` or `Issued`
+- Canada IRCC Portal Alpha monitoring
+- Korea Visa Portal status monitoring
+- Email notifications, test emails, and custom SMTP settings
+- Multi-user accounts, account tiers, and admin controls
+
+## Product Highlights
+
+- FastAPI backend with SQLite storage, APScheduler scheduling, and a standalone Worker queue consumer
+- React + Vite + TypeScript frontend with Chinese and English UI
+- Account registration, email verification, password reset, terms acceptance, and session management
+- Automatic monitoring, manual refresh jobs, status timelines, and query history
+- Encrypted storage for sensitive profile fields, SMTP credentials, IRCC credentials, and raw snapshots
+- Admin console for account tiers, worker priority, queue visibility, security events, and sender configuration
+
+## Query Models
+
+### U.S. CEAC
+
+CEAC profiles can run on schedule or on demand. Status changes and CEAC last-updated changes are written to history and can trigger notification emails. Standard and Premium accounts use different quotas, while admins are exempt.
+
+### GTS passport appointment slots
+
+GTS monitoring is linked to a CEAC profile and is intended only for detection and notification. It does not book, hold, or grab slots. Once a slot is detected, polling slows down; users can stop monitoring after they complete booking.
+
+### Canada IRCC Portal Alpha
+
+IRCC support is currently marked Alpha. The app compares multiple IRCC snapshots, records visible changes, and can send notification emails when application status, messages, or applicant-side biometric details change. Because IRCC access relies on user-authorized credentials and an unofficial integration path, this flow should be used carefully and only on deployments you trust.
+
+### Korea Visa Portal
+
+Korea monitoring supports the current portal-based status lookup flow and records either structured status fields or the portal's "no data found" state as a valid snapshot.
 
 ## Local Development
 
@@ -47,18 +63,13 @@ Install backend dependencies:
 ```bash
 pip install uv
 uv sync
-```
-
-Copy the environment file:
-
-```bash
 cp .env.example .env
 ```
 
 Start the backend:
 
 ```bash
-uv run uvicorn CEACStatusBot.web.main:app --reload --host 127.0.0.1 --port 8000
+uv run uvicorn CEACStatusBot.web.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Start the Worker in another terminal:
@@ -75,115 +86,53 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. VS Code debug configuration lives in `.vscode/launch.json` and does not automatically open a browser.
+Open `http://127.0.0.1:5173`.
 
-## Environment Variables
+## Essential Configuration
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `DATABASE_PATH` | `ceacstatusbot.sqlite3` | SQLite database path |
-| `SECRET_KEY` | Development default | Session signing secret. Must be changed for public deployments |
-| `CREDENTIAL_KEY_FILE` | Empty | AES-256-GCM master key file path. Production recommendation: `/opt/ceacstatusbot-runtime/secrets/credential-master.key` |
-| `ENCRYPTION_KEY` | Empty | Compatibility/migration key for old Fernet ciphertext. It is not used as the new credential master key |
-| `SYSTEM_FROM_EMAIL` | Empty | Default system sender email |
-| `SYSTEM_EMAIL_PASSWORD` | Empty | Default system sender password/app password. In production, prefer saving it through the admin console so it is stored encrypted |
-| `SYSTEM_SMTP_HOST` | `smtp.exmail.qq.com` | System SMTP host |
-| `SYSTEM_SMTP_PORT` | `465` | System SMTP port |
-| `SYSTEM_SMTP_USE_SSL` | `true` | Whether to use SMTP SSL |
-| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Frontend origins allowed to access the backend |
-| `CSRF_TRUSTED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Trusted Origin / Referer values for sensitive requests |
-| `ALLOWED_HOSTS` | `localhost,127.0.0.1,ceac.mikezhuang.cn` | Host header allowlist enforced by the app |
-| `TRUSTED_PROXY_IPS` | `127.0.0.1,::1` | Reverse proxies whose `X-Forwarded-For` value is trusted |
-| `API_MAX_BODY_BYTES` | `131072` | Maximum API request body size |
-| `COOKIE_SECURE` | `false` | Defaults to `false` locally. Must be `true` behind HTTPS in production |
-| `SESSION_IDLE_TIMEOUT_MINUTES` | `720` | Automatic logout after inactivity |
-| `SESSION_ABSOLUTE_TIMEOUT_DAYS` | `14` | Maximum database session lifetime |
-| `AUTH_LOGIN_IP_DEVICE_LIMIT_PER_MINUTE` | `10` | Login attempt limit per IP/device |
-| `AUTH_LOGIN_EMAIL_FAILURE_LIMIT_PER_15_MINUTES` | `5` | Failed-login threshold before account/email cooldown |
-| `AUTH_CODE_EMAIL_LIMIT_PER_HOUR` | `3` | Verification-code emails per address per hour |
-| `AUTH_CODE_IP_DEVICE_LIMIT_PER_10_MINUTES` | `3` | Verification-code requests per IP/device window |
-| `STANDARD_API_LIMIT_PER_MINUTE` | `120` | Authenticated API limit for standard accounts |
-| `PREMIUM_API_LIMIT_PER_MINUTE` | `300` | Authenticated API limit for Premium accounts |
-| `ADMIN_API_LIMIT_PER_MINUTE` | `600` | Authenticated API limit for admins |
-| `QUERY_JOB_TIMEOUT_SECONDS` | `360` | Marks running query jobs as failed after this many seconds. Queue wait time does not count |
-| `WORKER_POLL_INTERVAL_SECONDS` | `1` | Worker polling interval for the SQLite job queue. GTS midnight burst jobs need second-level pickup |
-| `STANDARD_DAILY_MANUAL_QUERY_LIMIT` | `1` | Daily CEAC/GTS manual query limit for standard accounts |
-| `PREMIUM_DAILY_MANUAL_QUERY_LIMIT` | `1000` | Daily CEAC/GTS manual query limit for Premium accounts |
-| `STANDARD_DAILY_EMAIL_LIMIT` | `5` | Daily CEAC/GTS business email limit for standard accounts. Signup and password-reset codes are not counted |
-| `PREMIUM_DAILY_EMAIL_LIMIT` | `1000` | Daily CEAC/GTS business email limit for Premium accounts |
-| `SEED_DEFAULT_USERS` | `false` | Local demo account seed switch. Must remain `false` in public deployments |
-| `DEFAULT_ADMIN_EMAIL` | Empty | Seed admin email, only used when `SEED_DEFAULT_USERS=true` |
-| `DEFAULT_ADMIN_PASSWORD` | Empty | Seed admin password, only used when `SEED_DEFAULT_USERS=true` |
-| `DEFAULT_USER_EMAIL` | Empty | Seed regular user email, only used when `SEED_DEFAULT_USERS=true` |
-| `DEFAULT_USER_PASSWORD` | Empty | Seed regular user password, only used when `SEED_DEFAULT_USERS=true` |
-| `VITE_ICP_RECORD_NUMBER` | Empty | ICP record number shown in the frontend footer, for example `沪ICP备2026015123号-1` |
+Copy `.env.example` and review these values before any public deployment:
 
-Common Tencent Exmail settings:
+- `SECRET_KEY`: session signing secret; must be changed in production
+- `CREDENTIAL_KEY_FILE`: path to the repository-external credential master key
+- `DATABASE_PATH`: SQLite database location
+- `COOKIE_SECURE=true`: required behind HTTPS
+- `CORS_ORIGINS`, `CSRF_TRUSTED_ORIGINS`, `ALLOWED_HOSTS`: production host allowlists
+- `SYSTEM_FROM_EMAIL` and SMTP settings: default sender configuration
 
-- SMTP: `smtp.exmail.qq.com`
-- SMTP SSL port: `465`
-- IMAP: `imap.exmail.qq.com`
-- IMAP SSL port: `993`
+Demo accounts are disabled by default. If you need local-only seeded users, set `SEED_DEFAULT_USERS=true` and provide `DEFAULT_ADMIN_EMAIL` and `DEFAULT_ADMIN_PASSWORD`. Keep this disabled on public deployments.
 
-The current web application only needs SMTP. IMAP is not used for status querying or notifications.
+## Architecture
 
-## Query And Notification Logic
+- `CEACStatusBot/web/main.py`: FastAPI application and API routes
+- `CEACStatusBot/web/worker.py`: standalone queue consumer
+- `CEACStatusBot/web/case_service.py`: CEAC and GTS case logic
+- `CEACStatusBot/web/ircc_portal_service.py`: IRCC account, snapshot, and notification logic
+- `CEACStatusBot/web/korea_visa_service.py`: Korea visa query and history logic
+- `frontend/src/App.tsx`: main frontend application
 
-Each enabled visa profile stores `nextCheckAt`. The scheduler scans due profiles every minute and writes automatic query jobs into SQLite queues. The standalone Worker consumes the queues, calls CEAC/GTS/IRCC as appropriate, records query logs, updates status history, and sends email notifications.
+## Security Notes
 
-Creating an enabled profile automatically queues one initial query, and this initial automatic query does not consume the daily manual quota. `Query now` does not run the scraper directly in the web process. It creates a job and returns a job ID. The frontend polls job status, then refreshes the profile and status timeline. CEAC failure messages are shown on the profile detail page so users can tell whether they should check their inputs or retry later because CEAC is slow. CEAC `Query now`, GTS `Check slots now`, and IRCC `Query now` share the same daily manual query quota: Standard accounts default to 1 per day, Premium accounts default to 1000 per day, and admin accounts are exempt. CEAC/GTS/IRCC business emails also have daily account-level quotas: Standard defaults to 5 per day and Premium defaults to 1000 per day. Worker priority uses smaller numbers first; Premium defaults to 50 and Standard defaults to 100, while admins can override either value.
+- Passwords use Argon2id hashing
+- Sensitive fields and raw snapshots are encrypted with AES-256-GCM
+- The credential master key is stored outside the repository
+- Sensitive requests validate `Origin` and `Referer`
+- Request size limits, host allowlists, rate limits, and security-event logging are enabled
+- Third-party query targets are fixed; user input does not control request hosts
 
-If a CEAC profile fails 5 times in a row, the user receives an email asking them to verify the location, Application ID / Case Number, passport number, and first 5 surname letters. A successful CEAC query resets the counter. If the same profile reaches 10 consecutive CEAC failures, automatic CEAC checks are slowed to once per day instead of stopping immediately. If the profile still does not recover within 7 days after entering this failure slow mode, automatic CEAC checks are stopped and the user is notified; manual `Query now` remains available.
+IRCC Portal Alpha stores user-authorized portal credentials to support scheduled monitoring. That is a higher-trust feature than plain CEAC polling. Treat it accordingly.
 
-For data minimization, accounts with no new CEAC status history or GTS slot-change history for about 15 days receive an inactivity deletion warning. If there is still no new status or slot activity for about another 15 days, meaning about 30 days in total, the account and related profile data are automatically deleted.
+## Documentation Map
 
-The system compares the latest history item with the current CEAC result:
-
-- Exact match: only records the query log; no notification is sent.
-- Status or CEAC last-updated changed: writes a new status history item and sends an email.
-
-If a profile disables status update email notifications, the system still performs scheduled checks and records the timeline, but does not send automatic emails when the status changes. Users can still click `Test email` to send the latest existing status template manually.
-
-Passport appointment slot monitoring uses the same-origin GTS API flow: authenticate with UID/HAL via `https://scheduling-api.gtspremium.com/authenticate`, then call `/availability7days/` to query 7-day availability. It detects GTS-returned availability and sends notifications only; it does not automatically book, hold, or grab slots, and it cannot guarantee completeness, real-time accuracy, or booking success. UID/HAL, raw GTS responses, and slot-change history are encrypted at rest. The system normalizes GTS responses into three states: `not_eligible` means the passport is not eligible for appointment yet, `no_slot` means the passport appears eligible but no time is available, and `has_slot` means one or more appointment times were returned. Automatic polling is controlled by `Enable automatic monitoring`; slot-change email delivery is controlled by `Send email when status changes`. Emails are sent for `not_eligible -> no_slot`, `no_slot -> has_slot`, `has_slot -> no_slot`, `no_slot -> not_eligible`, `has_slot -> not_eligible`, and changed `has_slot` time lists. If a monitor has already reached `no_slot` or `has_slot` and then returns to `not_eligible`, the system treats the appointment eligibility as likely ended, sends an email, and automatically stops the GTS monitor. `no_slot` and `has_slot` emails include the full UID/HAL, the official GTS entry URL, the app entry URL, usage instructions, and a warning not to forward the email; the app does not use guessed UID/HAL deep links because the public GTS site does not expose a reliable autofill URL. Slot emails list readable dates and specific times and intentionally omit raw JSON/JWT payloads. Normal-hour polling is about every 1-30 minutes. While in `no_slot`, the scheduler uses China time for a midnight burst: 15-second checks from 23:59 to 00:02, roughly 5-second checks around 23:59:45-00:00:30, and explicit targets for 00:00:00 and 00:00:02. Once `no_slot` or `has_slot` is confirmed, the linked CEAC automatic status query is stopped and locked; only an admin can restore it. After slots are found, GTS polling slows to a randomized 50-70 minute interval and no longer uses the midnight burst; if a later query changes back to `no_slot`, polling returns to the normal `no_slot` cadence. Users can also click `I booked, stop monitor` after completing the appointment on the GTS site. GTS jobs are consumed by the Worker and appear as `passport_slot_manual` or `passport_slot_automatic`; queued jobs are claimed by `users.worker_priority ASC, query_jobs.id ASC`, where lower priority numbers run earlier. The admin console also exposes a read-only Worker queue view for queued/running jobs and upcoming scheduled CEAC/GTS jobs derived from `next_check_at`. User-visible email query times are formatted with the visitor device time zone last reported by the web app, falling back to China time if no time zone has been saved yet.
-
-IRCC Portal Alpha compares stable fingerprints across three snapshots: submitted applications for ghost updates, application status for total status, eligibility, medical, additional documents, interview, biometrics, background check, final decision, and applicant information, and messages for new or changed message rows. The first snapshot is recorded without a change email; later field changes are recorded and emailed according to the profile email switch. If login fails, MFA is required, or token refresh fails, the IRCC profile is stopped and the user must re-verify the portal credentials. Alpha does not download attachments or open message details, reducing the risk of marking messages as read.
-
-## Production Security Baseline
-
-- Login passwords use Argon2id. Legacy PBKDF2-SHA256 hashes are kept only for migration compatibility and are upgraded after successful login.
-- CEAC profile sensitive fields, GTS UID/HAL, IRCC Portal email/password/token cache, SMTP app passwords, and raw query snapshots are encrypted with AES-256-GCM.
-- The master key is stored in a local key file outside the repository. Do not write it into code, README files, `backend.env`, or GitHub.
-- Production cookies must use `HttpOnly + SameSite=Lax + Secure`.
-- All sensitive API requests validate `Origin` / `Referer`. Production should only trust `https://ceac.mikezhuang.cn`.
-- Application-level defenses include anonymous device cookies, SQLite-backed IP/device/account/email rate limits, login cooldowns, database-backed sessions with idle timeout, request body limits, Host allowlisting, and security-event audit logs.
-- The optional `Remember password` checkbox stores the password in the browser local storage and should only be used on private devices.
-- The CEAC scraper target is fixed to `https://ceac.state.gov`; the GTS slot query target is fixed to `https://scheduling-api.gtspremium.com`; IRCC Portal Alpha targets are fixed to `https://portal-portail.apps.cic.gc.ca` and `https://api.portal-portail.apps.cic.gc.ca`. User input cannot affect request hosts or URLs.
-- Cross-border query processing is disclosed in the unified user terms. Users authorize the app to submit the minimum necessary CEAC/GTS/IRCC query parameters to the relevant official or third-party systems when they create profiles, enable monitoring, or manually query. IRCC Portal Alpha stores user-authorized portal credentials; use it only on deployments you trust, and consider changing the IRCC Portal password after testing.
-- Production entry goes through the HTTPS domain only. Port 8010 is not a public entry point.
-- Nginx config sets connection timeouts, request rate limits, security headers, and only enables TLS 1.2 / TLS 1.3.
-
-For the complete security model, see [SECURITY.md](SECURITY.md).
-
-## Deployment And Operations
-
-Production deployment instructions are in [DEPLOYMENT.md](DEPLOYMENT.md). Daily operations and troubleshooting are in [OPERATIONS.md](OPERATIONS.md).
-
-Core conventions:
-
-- Code repository: `/opt/ceacstatusbot`
-- Runtime data: `/opt/ceacstatusbot-runtime`
-- Frontend build output: `/var/www/ceacstatusbot/frontend/dist`
-- Backend service: `ceacstatusbot-backend.service`
-- Worker service: `ceacstatusbot-worker.service`
-- Production domain: `https://ceac.mikezhuang.cn`
-- Auto-deploy repository: `https://github.com/Mike-Zhuang/CEACStatusBot_Web`
-
-During deployment, do not commit or overwrite `.env`, `backend.env`, the SQLite database, master key files, logs, backups, SMTP app passwords, or server private keys.
+- [DEPLOYMENT.md](DEPLOYMENT.md): production deployment
+- [OPERATIONS.md](OPERATIONS.md): day-2 operations and troubleshooting
+- [SECURITY.md](SECURITY.md): security model and incident handling
+- [LOCATION.md](LOCATION.md): CEAC location references
+- [DESIGN.md](DESIGN.md): UI and design notes
 
 ## License
 
-This project follows the [GNU General Public License v3.0](LICENSE). If you distribute a modified version, you must continue to comply with GPLv3 requirements around source availability, license preservation, and modification notices.
+This project is released under the [GNU General Public License v3.0](LICENSE).
 
 ## Acknowledgements
 
-Thanks to [Andision/CEACStatusBot](https://github.com/Andision/CEACStatusBot). This project builds on its CEAC automatic query direction and parts of its implementation, then adapts them into a web-based, service-oriented, multi-user application.
+This project builds on ideas and parts of the original [Andision/CEACStatusBot](https://github.com/Andision/CEACStatusBot), then extends them into a multi-user web product.
