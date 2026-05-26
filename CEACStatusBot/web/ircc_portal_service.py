@@ -1023,6 +1023,16 @@ def patchIrccCase(caseId: int, userId: int, payload: IrccCasePatch) -> dict[str,
         assignments.append("updated_at = ?")
         values.extend([now, caseId, userId])
         connection.execute(f"UPDATE ircc_cases SET {', '.join(assignments)} WHERE id = ? AND user_id = ?", tuple(values))
+        if data.get("isEnabled") is False:
+            connection.execute(
+                """
+                DELETE FROM ircc_query_jobs
+                WHERE case_id = ?
+                  AND trigger_type = 'ircc_automatic'
+                  AND status = 'queued'
+                """,
+                (caseId,),
+            )
     return getIrccCase(caseId, userId)
 
 
@@ -1132,12 +1142,15 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
     finishedIso = finished.replace(microsecond=0).isoformat()
     durationMs = int((finished - started).total_seconds() * 1000)
     with getConnection() as connection:
+        currentCaseRow = connection.execute("SELECT is_enabled, email_notifications_enabled FROM ircc_cases WHERE id = ?", (caseId,)).fetchone()
+        isEnabledNow = bool(currentCaseRow["is_enabled"]) if currentCaseRow else False
+        emailNotificationsEnabledNow = bool(currentCaseRow["email_notifications_enabled"]) if currentCaseRow else False
         if success:
             snapshotHash = stableHash(normalizeSnapshot(snapshot))
             normalized = normalizeSnapshot(snapshot)
             messageCount = len(normalized.get("messages") or [])
             if changed:
-                shouldNotify = previous is not None and bool(row["email_notifications_enabled"])
+                shouldNotify = previous is not None and emailNotificationsEnabledNow
                 if shouldNotify:
                     try:
                         emailTimezone = getUserEmailTimezone(int(row["user_id"]), connection)
@@ -1200,7 +1213,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                 """,
                 (
                     finishedIso,
-                    computeNextIrccCheckAt(finished) if bool(row["is_enabled"]) else None,
+                    computeNextIrccCheckAt(finished) if isEnabledNow else None,
                     triggerType,
                     snapshotHash,
                     summarizeSnapshotBrief(snapshot),
@@ -1223,7 +1236,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                 """,
                 (
                     finishedIso,
-                    None if stopAuto else computeNextIrccCheckAt(finished),
+                    None if (stopAuto or not isEnabledNow) else computeNextIrccCheckAt(finished),
                     triggerType,
                     int(stopAuto),
                     errorMessage,
