@@ -751,7 +751,9 @@ const translations = {
     profileOrderFailed: "Failed to save profile order.",
     issuedSlowQueryNotice: "This profile is Issued. Automatic checks are now daily and will stop automatically after one week if you do not stop them here.",
     stopAutomaticQuery: "Stop automatic checks",
+    startAutomaticQuery: "Start automatic checks",
     automaticQueryStopped: "Automatic checks stopped. You can still query manually.",
+    automaticQueryStarted: "Automatic checks resumed. The next query has been scheduled.",
     notVerified: "Not verified",
     newProfile: "New",
     nextCheckAt: "Next automatic query",
@@ -1014,7 +1016,9 @@ const translations = {
     profileOrderFailed: "档案顺序保存失败。",
     issuedSlowQueryNotice: "此档案已进入 Issued，自动查询已降频为每天一次；如果你一周内未手动停止，系统将自动停止并邮件通知你。",
     stopAutomaticQuery: "停止自动查询",
+    startAutomaticQuery: "开启自动查询",
     automaticQueryStopped: "已停止自动查询，你仍然可以手动立即查询。",
+    automaticQueryStarted: "已开启自动查询，系统已安排下一次自动查询。",
     notVerified: "未验证",
     newProfile: "新增",
     nextCheckAt: "下次自动查询",
@@ -2354,16 +2358,17 @@ export function App() {
     }
   }
 
-  async function stopIrccAutomaticQuery(targetCase: IrccCase) {
+  async function toggleIrccAutomaticQuery(targetCase: IrccCase) {
     setIsBusy(true);
     showMessage("");
+    const nextEnabled = !targetCase.isEnabled;
     try {
       await requestJson<{ case: IrccCase }>(`/api/ircc/cases/${targetCase.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ isEnabled: false }),
+        body: JSON.stringify({ isEnabled: nextEnabled }),
       });
       await loadIrccCases();
-      showMessage(t("automaticQueryStopped"));
+      showMessage(nextEnabled ? t("automaticQueryStarted") : t("automaticQueryStopped"));
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("requestFailed"));
     } finally {
@@ -2949,7 +2954,7 @@ export function App() {
                   sendTestEmail={sendIrccTestEmail}
                   removeCase={removeIrccCase}
                   toggleEmailPush={toggleIrccEmailPush}
-                  stopAutomaticQuery={stopIrccAutomaticQuery}
+                  toggleAutomaticQuery={toggleIrccAutomaticQuery}
                   isBusy={isBusy}
                   t={t}
                   languageMode={languageMode}
@@ -3596,7 +3601,7 @@ function IrccCaseDetail(props: {
   sendTestEmail: (caseId: number) => Promise<void>;
   removeCase: (caseId: number) => Promise<void>;
   toggleEmailPush: (targetCase: IrccCase) => Promise<void>;
-  stopAutomaticQuery: (targetCase: IrccCase) => Promise<void>;
+  toggleAutomaticQuery: (targetCase: IrccCase) => Promise<void>;
   isBusy: boolean;
   t: (key: TranslationKey) => string;
   languageMode: LanguageMode;
@@ -3713,8 +3718,8 @@ function IrccCaseDetail(props: {
               />
               <span className="body-sm">{props.t("emailPushSetting")}</span>
             </label>
-            <button className="button secondary" onClick={() => props.stopAutomaticQuery(props.targetCase)} disabled={props.isBusy || !props.targetCase.isEnabled}>
-              {props.t("stopAutomaticQuery")}
+            <button className="button secondary" onClick={() => props.toggleAutomaticQuery(props.targetCase)} disabled={props.isBusy}>
+              {props.targetCase.isEnabled ? props.t("stopAutomaticQuery") : props.t("startAutomaticQuery")}
             </button>
           </div>
         </div>
