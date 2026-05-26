@@ -210,6 +210,14 @@ class IrccAuthenticationError(RuntimeError):
     pass
 
 
+def shouldStopIrccAutomaticQuery(errorMessage: str) -> bool:
+    text = str(errorMessage or "")
+    lowered = text.lower()
+    if "http 403" in lowered:
+        return False
+    return "登录" in text or "MFA" in text or "鉴权" in text or "token" in lowered
+
+
 def computeNextIrccCheckAt(base: datetime | None = None) -> str:
     base = base or datetime.now(UTC)
     nextHour = (base + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
@@ -700,8 +708,10 @@ def irccHeaders(tokenCache: dict[str, Any]) -> dict[str, str]:
 def apiGet(path: str, tokenCache: dict[str, Any]) -> Any:
     with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         response = client.get(f"{IRCC_API_BASE_URL}{path}", headers=irccHeaders(tokenCache))
-    if response.status_code in {401, 403}:
+    if response.status_code == 401:
         raise IrccAuthenticationError(f"IRCC API 鉴权失败：HTTP {response.status_code}")
+    if response.status_code == 403:
+        raise RuntimeError("IRCC API 当前返回 HTTP 403，可能是官网维护、临时拦截或服务异常，请稍后重试。")
     try:
         return response.json()
     except ValueError as exc:
@@ -1222,7 +1232,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                 ),
             )
         else:
-            stopAuto = "登录" in errorMessage or "MFA" in errorMessage or "鉴权" in errorMessage or "token" in errorMessage.lower()
+            stopAuto = shouldStopIrccAutomaticQuery(errorMessage)
             connection.execute(
                 """
                 UPDATE ircc_cases
