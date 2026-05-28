@@ -386,7 +386,15 @@ def parseOptionalIso(value: str | None) -> datetime | None:
 
 def latestUserStatusOrSlotActivity(user: dict) -> datetime:
     candidates = [parseOptionalIso(user.get("created_at")) or datetime.now(UTC)]
-    for key in ("latest_status_at", "latest_slot_at", "latest_ircc_at", "latest_korea_at"):
+    for key in (
+        "latest_status_at",
+        "latest_slot_at",
+        "latest_ircc_at",
+        "latest_korea_at",
+        "latest_ceac_run_at",
+        "latest_ircc_run_at",
+        "latest_korea_run_at",
+    ):
         parsed = parseOptionalIso(user.get(key))
         if parsed:
             candidates.append(parsed)
@@ -398,11 +406,22 @@ def processInactiveAccounts() -> None:
     noticeBefore = now - timedelta(days=INACTIVITY_NOTICE_DAYS)
     deleteBefore = now - timedelta(days=INACTIVITY_DELETE_DAYS)
     with getConnection() as connection:
+        connection.execute(
+            """
+            UPDATE users
+            SET inactivity_notice_sent_at = NULL,
+                updated_at = ?
+            WHERE lower(trim(coalesce(role, ''))) = 'admin'
+              AND inactivity_notice_sent_at IS NOT NULL
+            """,
+            (now.isoformat(),),
+        )
         rows = connection.execute(
             """
             SELECT
                 u.id,
                 u.email,
+                u.role,
                 u.created_at,
                 u.inactivity_notice_sent_at,
                 (
@@ -428,12 +447,32 @@ def processInactiveAccounts() -> None:
                     FROM korea_status_history kh
                     JOIN korea_cases kc ON kc.id = kh.case_id
                     WHERE kc.user_id = u.id
-                ) AS latest_korea_at
+                ) AS latest_korea_at,
+                (
+                    SELECT max(r.finished_at)
+                    FROM query_runs r
+                    JOIN ceac_cases c ON c.id = r.case_id
+                    WHERE c.user_id = u.id
+                ) AS latest_ceac_run_at,
+                (
+                    SELECT max(ir.finished_at)
+                    FROM ircc_query_runs ir
+                    JOIN ircc_cases ic ON ic.id = ir.case_id
+                    WHERE ic.user_id = u.id
+                ) AS latest_ircc_run_at,
+                (
+                    SELECT max(kr.finished_at)
+                    FROM korea_query_runs kr
+                    JOIN korea_cases kc ON kc.id = kr.case_id
+                    WHERE kc.user_id = u.id
+                ) AS latest_korea_run_at
             FROM users u
-            WHERE u.role != 'admin'
+            WHERE lower(trim(coalesce(u.role, ''))) != 'admin'
             """,
         ).fetchall()
         for row in rows:
+            if str(row.get("role") or "").strip().lower() == "admin":
+                continue
             latestActivity = latestUserStatusOrSlotActivity(row)
             noticeSentAt = parseOptionalIso(row.get("inactivity_notice_sent_at"))
             if latestActivity > noticeBefore:
@@ -450,8 +489,9 @@ def processInactiveAccounts() -> None:
                         "CEACStatusBot 账号已因长期无动态删除",
                         "\n".join(
                             [
-                                "你的 CEACStatusBot 账号已因长期无状态或 slot 动态被自动删除。",
-                                "规则：连续 15 天无状态或 slot 动态会先发送提醒；提醒后再过 15 天仍无动态，即总计约 30 天无动态，会删除账号和相关档案数据。",
+                                "你的 CEACStatusBot 账号已因长期没有新的签证状态、slot 动态或查询运行记录被自动删除。",
+                                "规则：连续 15 天没有 CEAC、GTS slot、IRCC 或韩国签证相关动态会先发送提醒；提醒后再过 15 天仍无动态，即总计约 30 天无动态，会删除账号和相关档案数据。",
+                                "管理员账号不适用这条自动删除规则。",
                                 "",
                                 "如仍需使用，可重新注册账号。",
                             ],
@@ -468,8 +508,9 @@ def processInactiveAccounts() -> None:
                         "CEACStatusBot 账号长期无动态提醒",
                         "\n".join(
                             [
-                                "你的 CEACStatusBot 账号已经约 15 天没有新的 CEAC 状态历史或 GTS slot 变化记录。",
-                                "如果接下来约 15 天仍没有新的状态或 slot 动态，系统会自动删除该账号和相关档案数据。",
+                                "你的 CEACStatusBot 账号已经约 15 天没有新的 CEAC、GTS slot、IRCC 或韩国签证相关动态。",
+                                "如果接下来约 15 天仍没有新的签证状态、slot 动态或查询运行记录，系统会自动删除该账号和相关档案数据。",
+                                "管理员账号不适用这条自动删除规则。",
                                 "",
                                 f"登录入口：{settings.appBaseUrl}",
                             ],
