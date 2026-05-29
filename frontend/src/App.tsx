@@ -3517,6 +3517,14 @@ function KoreaCaseDetail(props: {
   t: (key: TranslationKey) => string;
   languageMode: LanguageMode;
 }) {
+  const sortedHistory = useMemo(() => {
+    return [...props.history].sort((left, right) => {
+      const leftTime = parsePortableTime(left.fetchedAt)?.getTime() ?? 0;
+      const rightTime = parsePortableTime(right.fetchedAt)?.getTime() ?? 0;
+      return rightTime - leftTime || right.id - left.id;
+    });
+  }, [props.history]);
+
   return (
     <>
       <section className="panel">
@@ -3585,19 +3593,35 @@ function KoreaCaseDetail(props: {
       </section>
       <section className="panel">
         <div className="panel-title">
-          <h2 className="headline">{props.t("statusHistory")}</h2>
+          <h2 className="subhead">{props.t("statusHistory")}</h2>
+          <History size={18} />
         </div>
-        <div className="history-list">
-          {props.history.map((item) => (
-            <div className="history-item" key={item.id}>
-              <div>
-                <strong>{item.status || props.t("noStatus")}</strong>
-                <p>{props.t("koreaApplicationNo")}: {item.applicationNo || "-"} · {props.t("koreaEntryPurpose")}: {item.entryPurpose || "-"}</p>
+        <div className="timeline">
+          {sortedHistory.map((item) => {
+            const detailLines = [
+              item.applicationNo ? `${props.t("koreaApplicationNo")}: ${item.applicationNo}` : "",
+              item.applicationDate ? `${props.t("koreaApplicationDate")}: ${item.applicationDate}` : "",
+              item.entryPurpose ? `${props.t("koreaEntryPurpose")}: ${item.entryPurpose}` : "",
+            ].filter(Boolean);
+            const status = item.status || props.t("noStatus");
+
+            return (
+              <div className="timeline-item" key={item.id}>
+                <div className="timeline-header">
+                  <span className="timeline-time">{formatTime(item.fetchedAt, props.languageMode)}</span>
+                  <span className={getStatusBadgeClass(status)}>{status}</span>
+                </div>
+                {detailLines.length > 0 && (
+                  <div className="timeline-desc-list">
+                    {detailLines.map((line) => (
+                      <div className="timeline-desc timeline-desc-line" key={line}>{line}</div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <span>{formatTime(item.fetchedAt, props.languageMode)}</span>
-            </div>
-          ))}
-          {props.history.length === 0 && (
+            );
+          })}
+          {sortedHistory.length === 0 && (
             <div className="empty-state">
               <div className="empty-state-icon"><History size={24} /></div>
               <p>{props.t("koreaNoHistory")}</p>
