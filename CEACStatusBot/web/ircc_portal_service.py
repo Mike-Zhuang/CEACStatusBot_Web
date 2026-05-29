@@ -344,6 +344,12 @@ def sanitizeIrccChangeSummaryForDisplay(summary: str) -> str:
     return "\n".join(dict.fromkeys(cleanedLines))
 
 
+def buildIrccDisplayChangeSummary(storedSummary: str, previousSnapshot: dict[str, Any] | None, currentSnapshot: dict[str, Any]) -> str:
+    if previousSnapshot:
+        return sanitizeIrccChangeSummaryForDisplay(buildChangeSummary(previousSnapshot, currentSnapshot))
+    return sanitizeIrccChangeSummaryForDisplay(storedSummary)
+
+
 def cleanIrccMessageText(value: Any) -> str:
     text = str(value or "")
     text = re.sub(r"<[^>]*>", " ", text)
@@ -1571,12 +1577,18 @@ def sendCurrentIrccEmail(caseId: int, userId: int | None = None) -> dict[str, An
             "SELECT * FROM ircc_status_history WHERE case_id = ? ORDER BY id DESC LIMIT 1",
             (caseId,),
         ).fetchone()
+        previous = connection.execute(
+            "SELECT raw_payload FROM ircc_status_history WHERE case_id = ? AND id < ? ORDER BY id DESC LIMIT 1",
+            (caseId, latest["id"] if latest else 0),
+        ).fetchone()
         smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (row["user_id"],)).fetchone()
     if not latest:
         return {"success": False, "error": "暂无 IRCC 状态快照，请先立即查询一次"}
     case = dict(row)
     case["receive_email"] = decryptIfNeeded(case["receive_email"]) or ""
     snapshot = json.loads(decryptIfNeeded(latest["raw_payload"]) or "{}")
+    previousSnapshot = json.loads(decryptIfNeeded(previous["raw_payload"]) or "{}") if previous else None
+    changeSummary = buildIrccDisplayChangeSummary(latest["change_summary"], previousSnapshot, snapshot)
     emailTimezone = getUserEmailTimezone(int(case["user_id"]))
     body = "\n".join(
         [
@@ -1589,7 +1601,7 @@ def sendCurrentIrccEmail(caseId: int, userId: int | None = None) -> dict[str, An
             f"快照时间：{formatCaseEmailTime(case, latest['fetched_at'])}",
             "",
             "最近变化摘要：",
-            formatEmailTextTimes(sanitizeIrccChangeSummaryForDisplay(latest["change_summary"]), emailTimezone),
+            formatEmailTextTimes(changeSummary, emailTimezone),
             "",
             "当前状态摘要：",
             formatEmailTextTimes(summarizeSnapshot(snapshot), emailTimezone),
