@@ -3356,6 +3356,13 @@ function translateIrccChangeSummary(value: string, languageMode: LanguageMode): 
     .replace(/首页 Ghost update：首页 submitted applications 更新时间从 (.*?) 变为 (.*?)。/g, "Home ghost update: submitted applications updated time changed from $1 to $2.")
     .replace(/Ghost update：首页更新时间从 (.*?) 变为 (.*?)。/g, "Home ghost update: home updated time changed from $1 to $2.")
     .replace(/IRCC Portal 原始时间/g, "IRCC Portal original time")
+    .replace(/申请消息新增：/g, "Application message added: ")
+    .replace(/申请消息更新：/g, "Application message updated: ")
+    .replace(/在线申请提交收据/g, "Online application receipt")
+    .replace(/IRCC 已发送信件/g, "IRCC correspondence sent")
+    .replace(/未命名消息/g, "Untitled message")
+    .replace(/另有 (\d+) 条新增消息/g, "$1 more new message(s)")
+    .replace(/另有 (\d+) 条更新消息/g, "$1 more updated message(s)")
     .replace(/申请消息发生变化：(\d+) 条 -> (\d+) 条。/g, "Application messages changed: $1 -> $2 message(s).");
 
   for (const [zhLabel, enLabel] of Object.entries(irccChangeLabelMap).sort((a, b) => b[0].length - a[0].length)) {
@@ -3490,6 +3497,14 @@ function getIrccApplicant(snapshot: IrccSnapshot | null): Record<string, unknown
   return Array.isArray(list) && list[0] && typeof list[0] === "object" ? list[0] as Record<string, unknown> : {};
 }
 
+function sortIrccMessagesNewestFirst(messages: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return [...messages].sort((left, right) => {
+    const leftTime = parsePortableTime(String(left.updatedDttm || left.createdDttm || ""))?.getTime() ?? 0;
+    const rightTime = parsePortableTime(String(right.updatedDttm || right.createdDttm || ""))?.getTime() ?? 0;
+    return rightTime - leftTime;
+  });
+}
+
 function KoreaCaseDetail(props: {
   targetCase: KoreaCase;
   history: KoreaHistoryItem[];
@@ -3610,6 +3625,7 @@ function IrccCaseDetail(props: {
   const appStatus = snapshot?.appStatus ?? {};
   const applicationInfo = snapshot?.applicationInfo ?? {};
   const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
+  const sortedMessages = sortIrccMessagesNewestFirst(messages);
   const documentStatus = Array.isArray(appStatus.documentStatus) ? appStatus.documentStatus : [];
   const applicant = getIrccApplicant(snapshot);
   const hasProcessingTimeDetails = Boolean(appStatus.processingTimeAvailable)
@@ -3815,7 +3831,7 @@ function IrccCaseDetail(props: {
           <Mail size={18} />
         </div>
         <div className="timeline">
-          {messages.map((message, index) => {
+          {sortedMessages.map((message, index) => {
             const details = typeof message.messageDetails === "object" && message.messageDetails ? message.messageDetails as Record<string, unknown> : {};
             const attachment = typeof details.attachment === "object" && details.attachment ? details.attachment as Record<string, unknown> : {};
             const subject = stripHtmlText(details.subject) || stripHtmlText(attachment.attachmentFileName) || "-";
@@ -3829,7 +3845,7 @@ function IrccCaseDetail(props: {
               </div>
             );
           })}
-          {messages.length === 0 && (
+          {sortedMessages.length === 0 && (
             <div className="empty-state">
               <div className="empty-state-icon"><Mail size={24} /></div>
               <p>{props.t("irccNoHistory")}</p>

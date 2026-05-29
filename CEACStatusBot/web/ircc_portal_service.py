@@ -86,6 +86,10 @@ IRCC_RAW_APPLICANT_DIFF_PATTERN = re.compile(
     re.IGNORECASE,
 )
 IRCC_LEGACY_STATUS_TIME_PATTERN = re.compile(r"，时间：(?=\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})")
+IRCC_MESSAGE_TAG_LABELS = {
+    "Online.RECEIPT": "在线申请提交收据",
+    "CorrespondenceSent": "IRCC 已发送信件",
+}
 
 # 这些 code/key 来自 IRCC Portal 当前前端 bundle（用户提供 HAR 中的 main-es2015）。
 # IRCC 未承诺它们是公开稳定 API；未知 code 仍会保留原始值显示。
@@ -340,6 +344,74 @@ def sanitizeIrccChangeSummaryForDisplay(summary: str) -> str:
     return "\n".join(dict.fromkeys(cleanedLines))
 
 
+def cleanIrccMessageText(value: Any) -> str:
+    text = str(value or "")
+    text = re.sub(r"<[^>]*>", " ", text)
+    replacements = {
+        "&nbsp;": " ",
+        "&amp;": "&",
+        "&lt;": "<",
+        "&gt;": ">",
+        "&quot;": '"',
+        "&#39;": "'",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    return " ".join(text.split()).strip()
+
+
+def getIrccMessageKey(message: dict[str, Any], index: int) -> str:
+    messageId = message.get("messageId")
+    if messageId:
+        return f"id:{messageId}"
+    subject = cleanIrccMessageText(message.get("subject") or message.get("attachmentFileName"))
+    if subject:
+        return f"subject:{subject}"
+    return f"index:{index}"
+
+
+def describeIrccMessage(message: dict[str, Any]) -> str:
+    subject = cleanIrccMessageText(message.get("subject") or message.get("attachmentFileName")) or "未命名消息"
+    tag = IRCC_MESSAGE_TAG_LABELS.get(str(message.get("messageTag") or ""), str(message.get("messageTag") or "申请消息"))
+    timeValue = message.get("updatedDttm") or message.get("createdDttm")
+    timePart = f"，时间：{timeValue}" if timeValue else ""
+    return f"{subject}（{tag}{timePart}）"
+
+
+def formatIrccMessageChanges(previousMessages: Any, currentMessages: Any) -> list[str]:
+    if not isinstance(previousMessages, list) or not isinstance(currentMessages, list):
+        return ["申请消息已更新。"]
+    previousByKey = {
+        getIrccMessageKey(message, index): message
+        for index, message in enumerate(previousMessages)
+        if isinstance(message, dict)
+    }
+    added: list[str] = []
+    updated: list[str] = []
+    for index, currentMessage in enumerate(currentMessages):
+        if not isinstance(currentMessage, dict):
+            continue
+        key = getIrccMessageKey(currentMessage, index)
+        previousMessage = previousByKey.get(key)
+        if previousMessage is None:
+            added.append(describeIrccMessage(currentMessage))
+        elif stableHash(previousMessage) != stableHash(currentMessage):
+            updated.append(describeIrccMessage(currentMessage))
+
+    lines: list[str] = []
+    if added:
+        shown = "；".join(added[:5])
+        suffix = f"；另有 {len(added) - 5} 条新增消息" if len(added) > 5 else ""
+        lines.append(f"申请消息新增：{shown}{suffix}。")
+    if updated:
+        shown = "；".join(updated[:5])
+        suffix = f"；另有 {len(updated) - 5} 条更新消息" if len(updated) > 5 else ""
+        lines.append(f"申请消息更新：{shown}{suffix}。")
+    if not lines:
+        lines.append(f"申请消息发生变化：{len(previousMessages)} 条 -> {len(currentMessages)} 条。")
+    return lines
+
+
 def normalizeMessage(message: dict[str, Any]) -> dict[str, Any]:
     details = message.get("messageDetails") if isinstance(message.get("messageDetails"), dict) else {}
     attachment = details.get("attachment") if isinstance(details.get("attachment"), dict) else {}
@@ -512,7 +584,7 @@ def buildChangeSummary(previous: dict[str, Any] | None, current: dict[str, Any])
         elif key == "messages":
             previousMessages = previousValue or []
             currentMessages = currentValue or []
-            changes.append(f"申请消息发生变化：{len(previousMessages)} 条 -> {len(currentMessages)} 条。")
+            changes.extend(formatIrccMessageChanges(previousMessages, currentMessages))
         elif key == "listOfApplicants":
             changes.extend(formatApplicantChanges(previousValue, currentValue))
         else:
