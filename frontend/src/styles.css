@@ -956,16 +956,28 @@ select:focus {
 }
 
 .case-order-buttons {
-  display: inline-flex;
+  display: none;
   align-items: center;
   gap: 4px;
-  opacity: 0;
-  transition: opacity 0.2s;
 }
 
 .case-row:hover .case-order-buttons,
 .case-order-buttons:focus-within {
-  opacity: 1;
+  display: inline-flex;
+}
+
+.case-row:hover .case-chevron,
+.case-row:has(.case-order-buttons:focus-within) .case-chevron {
+  display: none;
+}
+
+.case-order-buttons {
+  gap: 2px;
+}
+
+.case-order-buttons .button.compact {
+  min-height: 24px;
+  width: 24px;
 }
 
 .case-info {
@@ -994,20 +1006,20 @@ select:focus {
   flex: 1 0 100%;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
 }
 
 .profile-status-slot {
   min-width: 0;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   overflow: hidden;
 }
 
 .case-status-stack {
   display: grid;
-  justify-items: end;
+  justify-items: start;
   gap: 4px;
   min-width: 0;
   max-width: 100%;
@@ -2239,6 +2251,10 @@ select:focus {
     grid-template-columns: minmax(0, 1fr) auto auto;
     justify-content: space-between;
     width: 100%;
+  }
+
+  .case-order-buttons {
+    display: inline-flex;
   }
 
   .profile-status-slot {
