@@ -943,36 +943,43 @@ select:focus {
 }
 
 .case-chevron {
+  position: absolute;
+  right: 0;
+  top: 50%;
   color: var(--ink-tertiary);
   opacity: 0;
   transition: all 0.2s;
-  transform: translateX(-4px);
+  transform: translate(-4px, -50%);
 }
 
 .case-row.selected .case-chevron {
   opacity: 1;
-  transform: translateX(0);
+  transform: translate(0, -50%);
   color: var(--primary);
 }
 
 .case-order-buttons {
-  display: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  transform: translateY(-50%);
 }
 
 .case-row:hover .case-order-buttons,
 .case-order-buttons:focus-within {
-  display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .case-row:hover .case-chevron,
 .case-row:has(.case-order-buttons:focus-within) .case-chevron {
-  display: none;
-}
-
-.case-order-buttons {
-  gap: 2px;
+  opacity: 0;
 }
 
 .case-order-buttons .button.compact {
@@ -1001,12 +1008,11 @@ select:focus {
 }
 
 .case-row-actions {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr);
   flex: 1 0 100%;
   align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
   width: 100%;
 }
 
@@ -2251,10 +2257,6 @@ select:focus {
     grid-template-columns: minmax(0, 1fr) auto auto;
     justify-content: space-between;
     width: 100%;
-  }
-
-  .case-order-buttons {
-    display: inline-flex;
   }
 
   .profile-status-slot {
