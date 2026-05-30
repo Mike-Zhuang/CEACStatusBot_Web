@@ -2885,11 +2885,6 @@ export function App() {
                               >
                                 {profile.case.statusOverview ? formatIrccCompactHeadline(profile.case.statusOverview, languageMode) : t("waitFirstQuery")}
                               </span>
-                              {profile.case.statusOverview?.overallCode && (
-                                <span className="case-status-note">
-                                  {t("irccOverallStatus")}: {formatIrccCode(profile.case.statusOverview.overallCode, languageMode)}
-                                </span>
-                              )}
                             </div>
                           )
                         : <span className={getStatusBadgeClass(profile.case.lastStatus)}>{profile.case.lastStatus || t("waitFirstQuery")}</span>;

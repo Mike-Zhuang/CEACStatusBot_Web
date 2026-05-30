@@ -1013,18 +1013,6 @@ select:focus {
   max-width: 100%;
 }
 
-.case-status-note {
-  width: 100%;
-  max-width: 100%;
-  color: var(--ink-subtle);
-  font-size: 11px;
-  line-height: 1.35;
-  overflow: hidden;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .ircc-headline-badge {
   max-width: 280px;
 }
@@ -2259,11 +2247,6 @@ select:focus {
 
   .case-status-stack {
     justify-items: start;
-  }
-
-  .case-status-note {
-    max-width: min(100%, 320px);
-    text-align: left;
   }
 
   .status-badge {
