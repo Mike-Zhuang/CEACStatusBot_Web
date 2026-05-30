@@ -948,6 +948,7 @@ select:focus {
   top: 50%;
   color: var(--ink-tertiary);
   opacity: 0;
+  pointer-events: none;
   transition: all 0.2s;
   transform: translate(-4px, -50%);
 }
