@@ -2881,9 +2881,9 @@ export function App() {
                             <div className="case-status-stack">
                               <span
                                 className={getIrccToneBadgeClass(profile.case.statusOverview?.tone)}
-                                title={profile.case.statusOverview ? formatIrccHeadline(profile.case.statusOverview, languageMode) : t("waitFirstQuery")}
+                                title={profile.case.statusOverview ? formatIrccCompactHeadline(profile.case.statusOverview, languageMode) : t("waitFirstQuery")}
                               >
-                                {profile.case.statusOverview ? formatIrccHeadline(profile.case.statusOverview, languageMode) : t("waitFirstQuery")}
+                                {profile.case.statusOverview ? formatIrccCompactHeadline(profile.case.statusOverview, languageMode) : t("waitFirstQuery")}
                               </span>
                               {profile.case.statusOverview?.overallCode && (
                                 <span className="case-status-note">
@@ -3509,6 +3509,15 @@ function formatIrccHeadline(overview: IrccStatusOverview | null | undefined, lan
     || irccStatusCodeMap[overview.headlineCode]?.[languageMode]
     || (languageMode === "zh" ? `未知状态码：${overview.headlineCode}` : `Unknown status code: ${overview.headlineCode}`);
   return languageMode === "zh" ? `${text}（${overview.headlineCode}）` : `${text} (${overview.headlineCode})`;
+}
+
+function formatIrccCompactHeadline(overview: IrccStatusOverview | null | undefined, languageMode: LanguageMode): string {
+  if (!overview?.headlineCode) {
+    return languageMode === "zh" ? "等待首次查询" : "Waiting for first query";
+  }
+  return irccHeadlineCodeMap[overview.headlineCode]?.[languageMode]
+    || irccStatusCodeMap[overview.headlineCode]?.[languageMode]
+    || (languageMode === "zh" ? `未知状态码：${overview.headlineCode}` : `Unknown status code: ${overview.headlineCode}`);
 }
 
 function getIrccToneBadgeClass(tone: IrccStatusTone | undefined, extraClass = ""): string {

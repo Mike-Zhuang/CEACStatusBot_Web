@@ -799,9 +799,13 @@ select:focus {
 /* Dashboard Layout */
 .dashboard-layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
+}
+
+.dashboard-layout > * {
+  min-width: 0;
 }
 
 @media (max-width: 1024px) {
@@ -986,18 +990,19 @@ select:focus {
 
 .case-row-actions {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) auto auto;
-  flex: 1 0 auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  flex: 1 0 100%;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-left: auto;
+  width: 100%;
 }
 
 .profile-status-slot {
   min-width: 0;
   display: flex;
   justify-content: flex-end;
+  overflow: hidden;
 }
 
 .case-status-stack {
@@ -1005,10 +1010,12 @@ select:focus {
   justify-items: end;
   gap: 4px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .case-status-note {
-  max-width: 260px;
+  width: 100%;
+  max-width: 100%;
   color: var(--ink-subtle);
   font-size: 11px;
   line-height: 1.35;
