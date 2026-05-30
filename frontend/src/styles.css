@@ -986,7 +986,7 @@ select:focus {
 
 .case-row-actions {
   display: grid;
-  grid-template-columns: minmax(112px, 150px) auto auto;
+  grid-template-columns: minmax(220px, 280px) auto auto;
   flex: 1 0 auto;
   align-items: center;
   justify-content: flex-end;
@@ -998,6 +998,28 @@ select:focus {
   min-width: 0;
   display: flex;
   justify-content: flex-end;
+}
+
+.case-status-stack {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.case-status-note {
+  max-width: 260px;
+  color: var(--ink-subtle);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ircc-headline-badge {
+  max-width: 280px;
 }
 
 .button.compact {
@@ -1122,6 +1144,53 @@ select:focus {
 
 .ircc-section {
   margin-top: 4px;
+}
+
+.ircc-status-overview {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border-left: 3px solid var(--primary);
+  background: var(--surface-2);
+}
+
+.ircc-status-overview.approved {
+  border-left-color: var(--semantic-success);
+}
+
+.ircc-status-overview.negative {
+  border-left-color: var(--danger);
+}
+
+.ircc-overview-group {
+  display: grid;
+  gap: 6px;
+}
+
+.ircc-overview-group.latest {
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.ircc-overview-label {
+  color: var(--ink-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ircc-overview-headline {
+  color: var(--ink);
+  font-size: 19px;
+  line-height: 1.4;
+}
+
+.ircc-overview-text {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
 .ircc-ghost-note {
@@ -2179,6 +2248,15 @@ select:focus {
 
   .profile-status-slot {
     justify-content: flex-start;
+  }
+
+  .case-status-stack {
+    justify-items: start;
+  }
+
+  .case-status-note {
+    max-width: min(100%, 320px);
+    text-align: left;
   }
 
   .status-badge {

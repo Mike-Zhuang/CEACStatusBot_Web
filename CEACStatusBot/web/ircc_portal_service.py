@@ -209,6 +209,43 @@ STATUS_CODE_MAP = {
     "04": "年",
 }
 
+IRCC_STATUS_STAGE_FIELDS = (
+    ("eligibility", "资格审查"),
+    ("medical", "体检结果"),
+    ("additionalDocuments", "补充文件"),
+    ("interviewOrAppointment", "面试/预约"),
+    ("biometricInformation", "指纹/生物信息"),
+    ("backgroundChecks", "背景调查"),
+    ("finalDecision", "最终决定"),
+)
+IRCC_NON_SUBSTANTIVE_FINAL_DECISION_CODES = {"", "FD0", "FD1", "FD24"}
+IRCC_APPROVED_CODES = {"FD2", "FD6", "FD9", "FD13", "FD14", "FD17"}
+IRCC_NEGATIVE_CODES = {"FD3", "FD7", "FD10", "FD15", "FD16", "FD20", "FD21", "FD22"}
+IRCC_CLOSED_CODES = {"FD4", "FD5", "FD8", "FD11", "FD12", "FD18"}
+IRCC_HEADLINE_TEXT_OVERRIDES = {
+    "FD2": "已获批",
+    "FD3": "已被拒",
+    "FD4": "已撤回",
+    "FD5": "已取消",
+    "FD6": "已获批，需要提交护照",
+    "FD7": "因资料不完整而取消",
+    "FD8": "无法撤回",
+    "FD9": "已获批，需要提交护照",
+    "FD10": "已被拒",
+    "FD11": "已撤回",
+    "FD12": "无法撤回",
+    "FD13": "已找到公民身份记录",
+    "FD14": "已找到公民身份记录",
+    "FD15": "未找到公民身份记录",
+    "FD16": "未找到公民身份记录",
+    "FD17": "已获批",
+    "FD18": "已取消",
+    "FD20": "已视为放弃",
+    "FD21": "已视为放弃",
+    "FD22": "不符合转交 IRB 的资格",
+    "FD23": "即将提供决定",
+}
+
 
 class IrccAuthenticationError(RuntimeError):
     pass
@@ -255,6 +292,114 @@ def formatIrccValue(value: Any) -> str:
     if value in (None, ""):
         return "-"
     return str(value)
+
+
+def formatIrccStatusText(code: Any) -> str:
+    text = str(code or "")
+    if not text:
+        return "-"
+    return STATUS_CODE_MAP.get(text, f"未知状态码：{text}") or "-"
+
+
+def formatIrccHeadlineText(code: Any) -> str:
+    text = str(code or "")
+    return IRCC_HEADLINE_TEXT_OVERRIDES.get(text, formatIrccStatusText(text))
+
+
+def parseIrccStatusTimestamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for dateFormat in ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            parsed = datetime.strptime(text, dateFormat)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
+def getIrccHeadlineTone(code: Any) -> str:
+    text = str(code or "")
+    if text in IRCC_APPROVED_CODES:
+        return "approved"
+    if text in IRCC_NEGATIVE_CODES:
+        return "negative"
+    if text in IRCC_CLOSED_CODES:
+        return "closed"
+    if text in STATUS_CODE_MAP:
+        return "pending"
+    return "unknown"
+
+
+def buildIrccStatusOverview(snapshot: dict[str, Any]) -> dict[str, Any]:
+    appStatus = snapshot.get("appStatus") if isinstance(snapshot.get("appStatus"), dict) else {}
+    overallCode = str(appStatus.get("applicationStatus") or "")
+    latestUpdate: dict[str, Any] | None = None
+    latestSortKey: tuple[datetime, int] | None = None
+
+    # IRCC 官网页面会把总体说明和最新阶段更新同时展示。这里保留相同语义，
+    # 再额外生成一个适合列表和邮件首屏阅读的概括状态。
+    for index, (field, label) in enumerate(IRCC_STATUS_STAGE_FIELDS):
+        value = appStatus.get(field)
+        if not isinstance(value, dict):
+            continue
+        code = str(value.get("status") or "")
+        timeStamp = str(value.get("timeStamp") or "").strip()
+        parsedTime = parseIrccStatusTimestamp(timeStamp)
+        if not code or not parsedTime:
+            continue
+        sortKey = (parsedTime, index)
+        if latestSortKey is None or sortKey > latestSortKey:
+            latestSortKey = sortKey
+            latestUpdate = {
+                "field": field,
+                "label": label,
+                "code": code,
+                "text": formatIrccStatusText(code),
+                "timeStamp": timeStamp,
+            }
+
+    finalDecision = appStatus.get("finalDecision")
+    finalDecisionCode = str(finalDecision.get("status") or "") if isinstance(finalDecision, dict) else ""
+    if finalDecisionCode not in IRCC_NON_SUBSTANTIVE_FINAL_DECISION_CODES:
+        headlineCode = finalDecisionCode
+    elif latestUpdate:
+        headlineCode = str(latestUpdate["code"])
+    else:
+        headlineCode = overallCode
+
+    return {
+        "headlineCode": headlineCode,
+        "headlineText": formatIrccHeadlineText(headlineCode),
+        "tone": getIrccHeadlineTone(headlineCode),
+        "overallCode": overallCode,
+        "overallText": formatIrccStatusText(overallCode),
+        "latestUpdate": latestUpdate,
+    }
+
+
+def formatIrccStatusOverview(snapshot: dict[str, Any]) -> str:
+    overview = buildIrccStatusOverview(snapshot)
+    headlineCode = overview["headlineCode"]
+    overallCode = overview["overallCode"]
+    lines = [
+        f"当前概括状态：{overview['headlineText']}" + (f"（{headlineCode}）" if headlineCode else ""),
+        f"总体状态：{overview['overallText']}" + (f"（{overallCode}）" if overallCode else ""),
+    ]
+    latestUpdate = overview.get("latestUpdate")
+    if latestUpdate:
+        lines.append(
+            f"Latest update：{latestUpdate['label']} - {latestUpdate['timeStamp']}："
+            f"{latestUpdate['text']}（{latestUpdate['code']}）"
+        )
+    return "\n".join(lines)
+
+
+def hasIrccHeadlineChanged(previous: dict[str, Any] | None, current: dict[str, Any]) -> bool:
+    if not previous:
+        return False
+    return buildIrccStatusOverview(previous)["headlineCode"] != buildIrccStatusOverview(current)["headlineCode"]
 
 
 def maskTail(value: Any, visible: int = 4) -> str:
@@ -519,10 +664,10 @@ def summarizeSnapshot(snapshot: dict[str, Any]) -> str:
 
 def summarizeSnapshotBrief(snapshot: dict[str, Any]) -> str:
     normalized = normalizeSnapshot(snapshot)
+    overview = buildIrccStatusOverview(snapshot)
     parts = [
-        f"总状态：{formatIrccValue(normalized.get('applicationStatus'))}",
-        f"首页状态：{formatIrccValue(normalized.get('applicationInfoStatus'))}",
-        f"指纹/生物信息：{formatIrccValue(normalized.get('biometricInformation'))}",
+        f"当前概括状态：{overview['headlineText']}（{overview['headlineCode']}）",
+        f"总体状态：{overview['overallText']}（{overview['overallCode']}）",
         f"消息：{len(normalized.get('messages') or [])} 条",
     ]
     return " · ".join(parts)
@@ -937,6 +1082,7 @@ def normalizeIrccCaseRow(row: dict[str, Any]) -> dict[str, Any]:
         "lastSummary": lastSummary,
         "lastErrorMessage": row.get("last_error_message") or "",
         "latestSnapshot": latestSnapshot,
+        "statusOverview": buildIrccStatusOverview(latestSnapshot) if latestSnapshot else None,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -1244,7 +1390,13 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                         emailTimezone = getUserEmailTimezone(int(row["user_id"]), connection)
                         queryTime = formatEmailTime(finishedIso, emailTimezone)
                         emailChangeSummary = formatEmailTextTimes(sanitizeIrccChangeSummaryForDisplay(changeSummary), emailTimezone)
-                        subject = f"[IRCC Alpha] {row['application_number'] or row['app_id']} {irccEmailSubjectAction(changeType)}"
+                        overview = buildIrccStatusOverview(snapshot)
+                        subjectAction = (
+                            f"当前概括状态：{overview['headlineText']}"
+                            if hasIrccHeadlineChanged(previousSnapshot, snapshot)
+                            else irccEmailSubjectAction(changeType)
+                        )
+                        subject = f"[IRCC Alpha] {row['application_number'] or row['app_id']} {subjectAction}"
                         body = "\n".join(
                             [
                                 irccEmailIntro(changeType),
@@ -1256,10 +1408,13 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                                 f"申请人：{row['principal_applicant'] or '-'}",
                                 f"查询时间：{queryTime}",
                                 "",
+                                "状态概览：",
+                                formatEmailTextTimes(formatIrccStatusOverview(snapshot), emailTimezone),
+                                "",
                                 "变化摘要：",
                                 emailChangeSummary,
                                 "",
-                                "当前状态摘要：",
+                                "当前状态详情：",
                                 formatEmailTextTimes(summarizeSnapshot(snapshot), emailTimezone),
                             ],
                         )
@@ -1600,10 +1755,13 @@ def sendCurrentIrccEmail(caseId: int, userId: int | None = None) -> dict[str, An
             f"申请人：{case['principal_applicant'] or '-'}",
             f"快照时间：{formatCaseEmailTime(case, latest['fetched_at'])}",
             "",
+            "状态概览：",
+            formatEmailTextTimes(formatIrccStatusOverview(snapshot), emailTimezone),
+            "",
             "最近变化摘要：",
             formatEmailTextTimes(changeSummary, emailTimezone),
             "",
-            "当前状态摘要：",
+            "当前状态详情：",
             formatEmailTextTimes(summarizeSnapshot(snapshot), emailTimezone),
         ],
     )

@@ -1264,6 +1264,7 @@ def adminCases(_: dict = Depends(adminDependency)) -> dict:
             "appId": case["appId"],
             "applicationNumber": case["applicationNumber"],
             "principalApplicant": case["principalApplicant"],
+            "statusOverview": case["statusOverview"],
         }
         for case in listIrccCases()
     ]

@@ -107,8 +107,28 @@ interface IrccCase {
   lastSummary: string;
   lastErrorMessage: string;
   latestSnapshot: IrccSnapshot | null;
+  statusOverview: IrccStatusOverview | null;
   createdAt: string;
   updatedAt: string;
+}
+
+type IrccStatusTone = "pending" | "approved" | "negative" | "closed" | "unknown";
+
+interface IrccLatestUpdate {
+  field: string;
+  label: string;
+  code: string;
+  text: string;
+  timeStamp: string | null;
+}
+
+interface IrccStatusOverview {
+  headlineCode: string;
+  headlineText: string;
+  tone: IrccStatusTone;
+  overallCode: string;
+  overallText: string;
+  latestUpdate: IrccLatestUpdate | null;
 }
 
 interface KoreaCase {
@@ -374,6 +394,7 @@ interface AdminCase extends CeacCase {
   appId?: string;
   applicationNumber?: string;
   principalApplicant?: string;
+  statusOverview?: IrccStatusOverview | null;
 }
 
 interface SecurityEvent {
@@ -930,6 +951,9 @@ const translations = {
     irccTestEmailSending: "Sending IRCC test email.",
     irccTestEmailSent: "IRCC test email sent.",
     irccApplicationStatus: "Application status",
+    irccStatusOverview: "Current status overview",
+    irccOverallStatus: "Overall status",
+    irccLatestUpdate: "Latest update",
     irccApplicantInfo: "Applicant information",
     irccMessages: "Messages",
     irccGhostUpdate: "Home updated time comes from the submitted applications page. If it changes while the detail page stays the same, it is recorded as a ghost update.",
@@ -1195,6 +1219,9 @@ const translations = {
     irccTestEmailSending: "正在发送 IRCC 测试邮件。",
     irccTestEmailSent: "IRCC 测试邮件已发送。",
     irccApplicationStatus: "申请状态",
+    irccStatusOverview: "当前概括状态",
+    irccOverallStatus: "总体状态",
+    irccLatestUpdate: "Latest update",
     irccApplicantInfo: "申请人信息",
     irccMessages: "申请消息",
     irccGhostUpdate: "首页更新时间来自 submitted applications 页面；它变化但详情页可见状态不变时，会记录为 ghost update。",
@@ -2850,7 +2877,21 @@ export function App() {
                     const statusNode = profile.profileType === "ceac"
                       ? <span className={getStatusBadgeClass(profile.case.lastStatus)}>{profile.case.lastStatus ?? t("waitFirstQuery")}</span>
                       : profile.profileType === "ircc"
-                        ? <span className="status-badge">{profile.case.lastSnapshotHash ? t("irccSnapshotSaved") : t("waitFirstQuery")}</span>
+                        ? (
+                            <div className="case-status-stack">
+                              <span
+                                className={getIrccToneBadgeClass(profile.case.statusOverview?.tone)}
+                                title={profile.case.statusOverview ? formatIrccHeadline(profile.case.statusOverview, languageMode) : t("waitFirstQuery")}
+                              >
+                                {profile.case.statusOverview ? formatIrccHeadline(profile.case.statusOverview, languageMode) : t("waitFirstQuery")}
+                              </span>
+                              {profile.case.statusOverview?.overallCode && (
+                                <span className="case-status-note">
+                                  {t("irccOverallStatus")}: {formatIrccCode(profile.case.statusOverview.overallCode, languageMode)}
+                                </span>
+                              )}
+                            </div>
+                          )
                         : <span className={getStatusBadgeClass(profile.case.lastStatus)}>{profile.case.lastStatus || t("waitFirstQuery")}</span>;
                     const caseMeta = profile.profileType === "ceac"
                       ? `${t("countryUnitedStates")} · ${profile.case.applicationNum || t("missingCaseNumber")}`
@@ -3302,6 +3343,40 @@ const irccMessageTagMap: Record<string, { zh: string; en: string }> = {
   CorrespondenceSent: { zh: "IRCC 已发送信件", en: "IRCC correspondence sent" },
 };
 
+const irccHeadlineCodeMap: Record<string, { zh: string; en: string }> = {
+  FD2: { zh: "已获批", en: "Approved" },
+  FD3: { zh: "已被拒", en: "Refused" },
+  FD4: { zh: "已撤回", en: "Withdrawn" },
+  FD5: { zh: "已取消", en: "Cancelled" },
+  FD6: { zh: "已获批，需要提交护照", en: "Approved, passport submission required" },
+  FD7: { zh: "因资料不完整而取消", en: "Cancelled as incomplete" },
+  FD8: { zh: "无法撤回", en: "Cannot be withdrawn" },
+  FD9: { zh: "已获批，需要提交护照", en: "Approved, passport submission required" },
+  FD10: { zh: "已被拒", en: "Refused" },
+  FD11: { zh: "已撤回", en: "Withdrawn" },
+  FD12: { zh: "无法撤回", en: "Cannot be withdrawn" },
+  FD13: { zh: "已找到公民身份记录", en: "Citizenship record found" },
+  FD14: { zh: "已找到公民身份记录", en: "Citizenship record found" },
+  FD15: { zh: "未找到公民身份记录", en: "Citizenship record not found" },
+  FD16: { zh: "未找到公民身份记录", en: "Citizenship record not found" },
+  FD17: { zh: "已获批", en: "Approved" },
+  FD18: { zh: "已取消", en: "Cancelled" },
+  FD20: { zh: "已视为放弃", en: "Abandoned" },
+  FD21: { zh: "已视为放弃", en: "Abandoned" },
+  FD22: { zh: "不符合转交 IRB 的资格", en: "Ineligible for referral to the IRB" },
+  FD23: { zh: "即将提供决定", en: "Decision will be provided shortly" },
+};
+
+const irccLatestUpdateLabelMap: Record<string, { zh: string; en: string }> = {
+  eligibility: { zh: "资格审查", en: "Review of eligibility" },
+  medical: { zh: "体检结果", en: "Review of medical results" },
+  additionalDocuments: { zh: "补充文件", en: "Review of additional documents" },
+  interviewOrAppointment: { zh: "面试/预约", en: "Interview / appointment" },
+  biometricInformation: { zh: "指纹/生物信息", en: "Biometrics" },
+  backgroundChecks: { zh: "背景调查", en: "Background check" },
+  finalDecision: { zh: "最终决定", en: "Final decision" },
+};
+
 const irccChangeLabelMap: Record<string, string> = {
   "总申请状态": "Overall application status",
   "首页申请状态": "Home page status",
@@ -3424,6 +3499,38 @@ function formatIrccCode(value: string, languageMode: LanguageMode): string {
     return "-";
   }
   return languageMode === "zh" ? `${mapped[languageMode]}（${value}）` : `${mapped[languageMode]} (${value})`;
+}
+
+function formatIrccHeadline(overview: IrccStatusOverview | null | undefined, languageMode: LanguageMode): string {
+  if (!overview?.headlineCode) {
+    return languageMode === "zh" ? "等待首次查询" : "Waiting for first query";
+  }
+  const text = irccHeadlineCodeMap[overview.headlineCode]?.[languageMode]
+    || irccStatusCodeMap[overview.headlineCode]?.[languageMode]
+    || (languageMode === "zh" ? `未知状态码：${overview.headlineCode}` : `Unknown status code: ${overview.headlineCode}`);
+  return languageMode === "zh" ? `${text}（${overview.headlineCode}）` : `${text} (${overview.headlineCode})`;
+}
+
+function getIrccToneBadgeClass(tone: IrccStatusTone | undefined, extraClass = ""): string {
+  const semanticClass = tone === "approved" ? "success" : tone === "negative" ? "error" : "";
+  return ["status-badge", "ircc-headline-badge", semanticClass, extraClass].filter(Boolean).join(" ");
+}
+
+function formatIrccLatestUpdateTime(value: string | null, languageMode: LanguageMode): string {
+  const text = String(value || "").trim();
+  const matched = text.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?$/);
+  if (!matched) {
+    return text || "-";
+  }
+  const [, month, day, year, hour, minute, second] = matched;
+  const datePart = languageMode === "zh"
+    ? `${Number(year)}/${Number(month)}/${Number(day)}`
+    : `${Number(month)}/${Number(day)}/${year}`;
+  return hour ? `${datePart} ${hour}:${minute}:${second}` : datePart;
+}
+
+function formatIrccLatestUpdateLabel(field: string, fallback: string, languageMode: LanguageMode): string {
+  return irccLatestUpdateLabelMap[field]?.[languageMode] || fallback;
 }
 
 function formatIrccBoolean(value: unknown, languageMode: LanguageMode): string {
@@ -3648,6 +3755,7 @@ function IrccCaseDetail(props: {
   const snapshot = props.targetCase.latestSnapshot;
   const appStatus = snapshot?.appStatus ?? {};
   const applicationInfo = snapshot?.applicationInfo ?? {};
+  const statusOverview = props.targetCase.statusOverview;
   const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
   const sortedMessages = sortIrccMessagesNewestFirst(messages);
   const documentStatus = Array.isArray(appStatus.documentStatus) ? appStatus.documentStatus : [];
@@ -3787,8 +3895,35 @@ function IrccCaseDetail(props: {
       <section className="panel">
         <div className="panel-title">
           <h2 className="subhead">{props.t("irccApplicationStatus")}</h2>
-          <span className="status-badge">{readIrccStatus(appStatus.applicationStatus, props.languageMode) || props.t("noStatus")}</span>
+          <span className={getIrccToneBadgeClass(statusOverview?.tone)}>
+            {statusOverview ? formatIrccHeadline(statusOverview, props.languageMode) : props.t("noStatus")}
+          </span>
         </div>
+        {statusOverview && (
+          <div className={`ircc-status-overview ${statusOverview.tone}`}>
+            <div className="ircc-overview-group">
+              <span className="ircc-overview-label">{props.t("irccStatusOverview")}</span>
+              <strong className="ircc-overview-headline">{formatIrccHeadline(statusOverview, props.languageMode)}</strong>
+            </div>
+            <div className="ircc-overview-group">
+              <span className="ircc-overview-label">{props.t("irccOverallStatus")}</span>
+              <p className="ircc-overview-text">{formatIrccCode(statusOverview.overallCode, props.languageMode)}</p>
+            </div>
+            {statusOverview.latestUpdate && (
+              <div className="ircc-overview-group latest">
+                <span className="ircc-overview-label">{props.t("irccLatestUpdate")}</span>
+                <p className="ircc-overview-text">
+                  <strong>
+                    {formatIrccLatestUpdateLabel(statusOverview.latestUpdate.field, statusOverview.latestUpdate.label, props.languageMode)}
+                    {" - "}
+                    {formatIrccLatestUpdateTime(statusOverview.latestUpdate.timeStamp, props.languageMode)}
+                  </strong>
+                </p>
+                <p className="ircc-overview-text">{formatIrccCode(statusOverview.latestUpdate.code, props.languageMode)}</p>
+              </div>
+            )}
+          </div>
+        )}
         <div className="two-col metric-grid ircc-metric-grid">
           <Metric label={statusLabels.eligibility} value={readIrccStatus(appStatus.eligibility, props.languageMode)} />
           <Metric label={statusLabels.medical} value={readIrccStatus(appStatus.medical, props.languageMode)} />
@@ -4528,9 +4663,12 @@ function AdminPanel(props: {
                         const isKorea = item.profileType === "korea";
                         const countryLabel = isKorea ? props.t("countryKorea") : isIrcc ? props.t("countryCanada") : props.t("countryUnitedStates");
                         const statusSummary = item.lastStatus ?? props.t("waitFirstQuery");
-                        const irccSummaryParts = statusSummary.split(" · ").filter(Boolean);
-                        const irccPrimarySummary = irccSummaryParts[0] ?? statusSummary;
-                        const irccSecondarySummary = irccSummaryParts.slice(1).join(" · ");
+                        const irccPrimarySummary = item.statusOverview
+                          ? formatIrccHeadline(item.statusOverview, props.languageMode)
+                          : statusSummary;
+                        const irccSecondarySummary = item.statusOverview?.overallCode
+                          ? `${props.t("irccOverallStatus")}: ${formatIrccCode(item.statusOverview.overallCode, props.languageMode)}`
+                          : "";
                         return (
                           <div key={key} className="admin-profile-card">
                             <div className="admin-profile-main">
@@ -4544,8 +4682,9 @@ function AdminPanel(props: {
                               {isIrcc ? (
                                 <>
                                   <div className="admin-profile-status-line">
-                                    <span className="admin-status-chip ircc">IRCC</span>
-                                    <span className="admin-ircc-summary" title={statusSummary}>{irccPrimarySummary}</span>
+                                    <span className={getIrccToneBadgeClass(item.statusOverview?.tone)} title={irccPrimarySummary}>
+                                      {irccPrimarySummary}
+                                    </span>
                                   </div>
                                   {irccSecondarySummary && (
                                     <div className="admin-profile-subline admin-ircc-subline" title={irccSecondarySummary}>
