@@ -2,6 +2,8 @@
 
 本文档记录 CEACStatusBot Web 的生产安全模型、边界和运维要求。不要在本文档或仓库中写入真实管理员账号、SMTP 授权码、数据库、主密钥或服务器私钥。
 
+公开漏洞报告流程请参阅 [SECURITY.en.md](SECURITY.en.md)。请勿通过公开 Issue 披露漏洞、凭证或个人信息。
+
 ## 安全模型
 
 - 本站登录密码使用 Argon2id 单向哈希。旧 PBKDF2-SHA256 哈希仅用于兼容迁移，用户登录成功后应自动升级为 Argon2id。

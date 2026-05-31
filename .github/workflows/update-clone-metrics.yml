@@ -1,0 +1,50 @@
+name: Update clone metrics
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: source
+      - name: Fetch GitHub Traffic clone data
+        env:
+          TRAFFIC_READ_TOKEN: ${{ secrets.TRAFFIC_READ_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          test -n "$TRAFFIC_READ_TOKEN"
+          curl --fail --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $TRAFFIC_READ_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/traffic/clones" \
+            --output /tmp/latest-clones.json
+      - name: Render and publish metrics branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir metrics-output
+          git -C source fetch origin repo-metrics || true
+          git -C source show origin/repo-metrics:clone-history.json > metrics-output/clone-history.json || true
+          python source/scripts/render_clone_history.py \
+            --latest /tmp/latest-clones.json \
+            --history metrics-output/clone-history.json \
+            --output metrics-output/clone-history.svg
+          cd metrics-output
+          git init
+          git switch --orphan repo-metrics
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPOSITORY}.git"
+          git add clone-history.json clone-history.svg
+          git commit -m "chore: update repository clone metrics"
+          git push --force origin repo-metrics

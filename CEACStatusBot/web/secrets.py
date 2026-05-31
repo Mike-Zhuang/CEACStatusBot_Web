@@ -40,6 +40,8 @@ def getCredentialMasterKey() -> bytes:
         return key
 
     # 本地开发允许从 SECRET_KEY 派生稳定密钥；生产必须使用 CREDENTIAL_KEY_FILE。
+    if settings.cookieSecure:
+        raise RuntimeError("CREDENTIAL_KEY_FILE is required when COOKIE_SECURE=true")
     return hashlib.sha256(settings.secretKey.encode()).digest()
 
 

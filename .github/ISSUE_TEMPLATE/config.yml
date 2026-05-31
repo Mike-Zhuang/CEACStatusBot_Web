@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/Mike-Zhuang/CEACStatusBot_Web/security/advisories/new
+    about: Report vulnerabilities privately. Do not disclose security issues in a public issue.
+  - name: Security policy
+    url: https://github.com/Mike-Zhuang/CEACStatusBot_Web/blob/main/SECURITY.en.md
+    about: Read the disclosure policy before reporting a vulnerability.

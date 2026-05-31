@@ -126,6 +126,12 @@ IRCC Portal Alpha 为了支持自动监控，会保存用户授权提交的门�
 - [DEPLOYMENT.md](DEPLOYMENT.md)：生产部署说明
 - [OPERATIONS.md](OPERATIONS.md)：日常运维与排障
 - [SECURITY.md](SECURITY.md)：安全模型与事件处置
+- [SECURITY.en.md](SECURITY.en.md)：公开漏洞披露政策
+- [THREAT_MODEL.md](THREAT_MODEL.md)：威胁模型
+- [PRIVACY.md](PRIVACY.md)：数据保存与自托管责任
+- [CONTRIBUTING.md](CONTRIBUTING.md)：贡献指南
+- [ROADMAP.md](ROADMAP.md)：后续规划
+- [CHANGELOG.md](CHANGELOG.md)：版本记录
 - [LOCATION.md](LOCATION.md)：CEAC 办理地点参考
 - [DESIGN.md](DESIGN.md)：界面与设计说明
 

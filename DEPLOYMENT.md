@@ -48,6 +48,7 @@ SYSTEM_EMAIL_PASSWORD=
 SYSTEM_SMTP_HOST=smtp.exmail.qq.com
 SYSTEM_SMTP_PORT=465
 SYSTEM_SMTP_USE_SSL=true
+APP_BASE_URL=https://ceac.mikezhuang.cn
 
 CORS_ORIGINS=https://ceac.mikezhuang.cn
 CSRF_TRUSTED_ORIGINS=https://ceac.mikezhuang.cn

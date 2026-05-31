@@ -1,0 +1,24 @@
+name: Security audit
+
+on:
+  schedule:
+    - cron: "41 4 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+      - name: Install audit tooling
+        run: uv sync --locked --group audit
+      - name: Export runtime requirements
+        run: uv export --quiet --locked --no-default-groups --format requirements-txt --output-file /tmp/runtime-requirements.txt
+      - name: Audit runtime dependencies
+        run: uv run --locked --group audit pip-audit --disable-pip --require-hashes --requirement /tmp/runtime-requirements.txt

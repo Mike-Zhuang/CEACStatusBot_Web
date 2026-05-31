@@ -1,3 +1,4 @@
-from .handle import *
-from .manual import *
-from .onnx import *
+from .handle import CaptchaHandle
+from .onnx import OnnxCaptchaHandle
+
+__all__ = ["CaptchaHandle", "OnnxCaptchaHandle"]

@@ -125,6 +125,7 @@ def getCurrentUser(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
     now = datetime.now(UTC).replace(microsecond=0)
     settings = getSettings()
+    expiredUserId: int | None = None
     with getConnection() as connection:
         session = connection.execute(
             """
@@ -145,12 +146,15 @@ def getCurrentUser(request: Request) -> dict[str, Any]:
                 "UPDATE user_sessions SET revoked_at = ? WHERE id = ?",
                 (now.isoformat(), session["id"]),
             )
-            logSecurityEvent(eventType="session_expired", request=request, severity="info", userId=int(session["user_id"]))
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已超时，请重新登录")
-        connection.execute(
-            "UPDATE user_sessions SET last_seen_at = ? WHERE id = ?",
-            (now.isoformat(), session["id"]),
-        )
+            expiredUserId = int(session["user_id"])
+        else:
+            connection.execute(
+                "UPDATE user_sessions SET last_seen_at = ? WHERE id = ?",
+                (now.isoformat(), session["id"]),
+            )
+    if expiredUserId is not None:
+        logSecurityEvent(eventType="session_expired", request=request, severity="info", userId=expiredUserId)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已超时，请重新登录")
     user = {
         "id": session["user_id"],
         "email": session["email"],

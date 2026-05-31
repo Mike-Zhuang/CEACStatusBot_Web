@@ -8,6 +8,7 @@ import uuid
 from base64 import b64decode, b64encode
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -928,9 +929,24 @@ def irccHeaders(tokenCache: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def apiGet(path: str, tokenCache: dict[str, Any]) -> Any:
+def buildIrccApiUrl(path: str) -> str:
+    if not path.startswith("/") or path.startswith("//") or "?" in path or "#" in path:
+        raise ValueError("Unexpected IRCC API request path")
+    url = f"{IRCC_API_BASE_URL}{path}"
+    parsed = urlparse(url)
+    baseParsed = urlparse(IRCC_API_BASE_URL)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc.lower() != baseParsed.netloc.lower()
+        or not parsed.path.startswith(f"{baseParsed.path}/")
+    ):
+        raise ValueError("Unexpected IRCC API request target")
+    return url
+
+
+def apiGet(path: str, tokenCache: dict[str, Any], *, params: dict[str, Any] | None = None) -> Any:
     with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-        response = client.get(f"{IRCC_API_BASE_URL}{path}", headers=irccHeaders(tokenCache))
+        response = client.get(buildIrccApiUrl(path), headers=irccHeaders(tokenCache), params=params)
     if response.status_code == 401:
         raise IrccAuthenticationError(f"IRCC API 鉴权失败：HTTP {response.status_code}")
     if response.status_code == 403:
@@ -942,16 +958,40 @@ def apiGet(path: str, tokenCache: dict[str, Any]) -> Any:
 
 
 def fetchSubmittedApplications(tokenCache: dict[str, Any]) -> list[dict[str, Any]]:
-    data = apiGet("/applicationInfo?appStatus=SUBMITTED&pageSize=50&pageIndex=0&sortBy=UPDATED_DATE&sortOrder=DESC", tokenCache)
+    data = apiGet(
+        "/applicationInfo",
+        tokenCache,
+        params={
+            "appStatus": "SUBMITTED",
+            "pageSize": 50,
+            "pageIndex": 0,
+            "sortBy": "UPDATED_DATE",
+            "sortOrder": "DESC",
+        },
+    )
     applications = data.get("applicationList") if isinstance(data, dict) else []
     return [item for item in applications if isinstance(item, dict)]
 
 
 def fetchIrccSnapshot(appId: str, tokenCache: dict[str, Any]) -> dict[str, Any]:
-    submitted = apiGet("/applicationInfo?appStatus=SUBMITTED&pageSize=50&pageIndex=0&sortBy=UPDATED_DATE&sortOrder=DESC", tokenCache)
+    submitted = apiGet(
+        "/applicationInfo",
+        tokenCache,
+        params={
+            "appStatus": "SUBMITTED",
+            "pageSize": 50,
+            "pageIndex": 0,
+            "sortBy": "UPDATED_DATE",
+            "sortOrder": "DESC",
+        },
+    )
     applicationList = submitted.get("applicationList") if isinstance(submitted, dict) else []
-    appStatus = apiGet(f"/appStatus?appId={appId}", tokenCache)
-    messages = apiGet(f"/messages?messageRefType=Application&messageRefId={appId}&messageType=Online", tokenCache)
+    appStatus = apiGet("/appStatus", tokenCache, params={"appId": appId})
+    messages = apiGet(
+        "/messages",
+        tokenCache,
+        params={"messageRefType": "Application", "messageRefId": appId, "messageType": "Online"},
+    )
     return {
         "applicationInfo": normalizeApplicationInfo(applicationList if isinstance(applicationList, list) else [], appId),
         "appStatus": appStatus if isinstance(appStatus, dict) else {},

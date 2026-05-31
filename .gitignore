@@ -1,6 +1,15 @@
 .env
+.env.*
+!.env.example
+frontend/.env.production
 *.sqlite3
+*.sqlite
 *.db
+*.db-*
+*.log
+*.pem
+*.key
+cookies*.json
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo

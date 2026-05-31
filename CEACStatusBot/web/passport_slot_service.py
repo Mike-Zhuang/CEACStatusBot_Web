@@ -518,7 +518,6 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
     finished = datetime.now(UTC)
     finishedIso = finished.replace(microsecond=0).isoformat()
     durationMs = int((finished - started).total_seconds() * 1000)
-    hasSlot = bool(slots)
     changed = success and fingerprint != previousFingerprint
     previousStableCount = int(previousResult.get("hasSlotStableCount") or 0) if isinstance(previousResult, dict) else 0
     hasSlotStableCount = previousStableCount + 1 if success and slotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT and previousSlotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT and not changed else 0

@@ -1,5 +1,12 @@
 # CEACStatusBot Web
 
+[![CI](https://github.com/Mike-Zhuang/CEACStatusBot_Web/actions/workflows/ci.yml/badge.svg)](https://github.com/Mike-Zhuang/CEACStatusBot_Web/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Mike-Zhuang/CEACStatusBot_Web/actions/workflows/codeql.yml/badge.svg)](https://github.com/Mike-Zhuang/CEACStatusBot_Web/actions/workflows/codeql.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB.svg)](pyproject.toml)
+[![Node 22](https://img.shields.io/badge/Node-22-339933.svg)](frontend/package.json)
+[![GitHub stars](https://img.shields.io/github/stars/Mike-Zhuang/CEACStatusBot_Web?style=flat)](https://github.com/Mike-Zhuang/CEACStatusBot_Web/stargazers)
+
 CEACStatusBot Web is a self-hosted visa status monitoring console for individuals and small operators. It combines U.S. visa CEAC status tracking, Canada IRCC Portal Alpha monitoring, Korea visa status checks, email notifications, account management, and an admin console in one deployable web application.
 
 The public service is available at [ceac.mikezhuang.cn](https://ceac.mikezhuang.cn).
@@ -121,11 +128,23 @@ Demo accounts are disabled by default. If you need local-only seeded users, set 
 
 IRCC Portal Alpha stores user-authorized portal credentials to support scheduled monitoring. That is a higher-trust feature than plain CEAC polling. Treat it accordingly.
 
+## Repository Metrics
+
+![Repository clone history](https://raw.githubusercontent.com/Mike-Zhuang/CEACStatusBot_Web/repo-metrics/clone-history.svg)
+
+The clone chart is generated from GitHub Traffic API aggregates and preserved on the independent `repo-metrics` branch. Clone counts can include bots, CI jobs, and repeated pulls. They are operational signals, not verified user counts.
+
 ## Documentation Map
 
 - [DEPLOYMENT.md](DEPLOYMENT.md): production deployment
 - [OPERATIONS.md](OPERATIONS.md): day-2 operations and troubleshooting
 - [SECURITY.md](SECURITY.md): security model and incident handling
+- [SECURITY.en.md](SECURITY.en.md): public vulnerability disclosure policy
+- [THREAT_MODEL.md](THREAT_MODEL.md): assets, trust boundaries, and controls
+- [PRIVACY.md](PRIVACY.md): stored data and self-hosting responsibilities
+- [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow
+- [ROADMAP.md](ROADMAP.md): planned work
+- [CHANGELOG.md](CHANGELOG.md): release notes
 - [LOCATION.md](LOCATION.md): CEAC location references
 - [DESIGN.md](DESIGN.md): UI and design notes
 
