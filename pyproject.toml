@@ -22,7 +22,7 @@ dependencies = [
     "pydantic[email]>=2.11.0",
     "python-dotenv>=1.2.2",
     "requests>=2.33.0",
-    "uvicorn[standard]>=0.34.0",
+    "uvicorn[standard]>=0.48.0",
 ]
 
 [dependency-groups]
