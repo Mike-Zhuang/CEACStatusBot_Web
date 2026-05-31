@@ -34,7 +34,11 @@ jobs:
         run: |
           mkdir metrics-output
           git -C source fetch origin repo-metrics || true
-          git -C source show origin/repo-metrics:clone-history.json > metrics-output/clone-history.json || true
+          if git -C source show origin/repo-metrics:clone-history.json > metrics-output/clone-history.json 2>/dev/null; then
+            test -s metrics-output/clone-history.json || printf '{"updatedAt":"","days":[]}\n' > metrics-output/clone-history.json
+          else
+            printf '{"updatedAt":"","days":[]}\n' > metrics-output/clone-history.json
+          fi
           python source/scripts/render_clone_history.py \
             --latest /tmp/latest-clones.json \
             --history metrics-output/clone-history.json \
