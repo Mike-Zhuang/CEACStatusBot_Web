@@ -1318,6 +1318,35 @@ select:focus {
   gap: 16px;
 }
 
+.korea-history-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.korea-history-status-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.korea-history-status-label {
+  color: var(--ink-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge.korea-history-status {
+  justify-self: start;
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 17px;
+  font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .timeline-time {
   color: var(--ink-subtle);
   font-size: 14px;
@@ -2038,6 +2067,7 @@ select:focus {
 
   .settings-row,
   .timeline-header,
+  .korea-history-header,
   .page-header {
     align-items: flex-start;
     flex-direction: column;

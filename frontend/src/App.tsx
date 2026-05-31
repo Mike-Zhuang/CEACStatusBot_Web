@@ -921,6 +921,7 @@ const translations = {
     koreaApplicationNo: "Application no.",
     koreaApplicationDate: "Application date",
     koreaEntryPurpose: "Entry purpose",
+    koreaProgressStatus: "Progress status",
     koreaSave: "Save Korea profile",
     koreaQuerying: "Querying Korea Visa Portal. Please wait.",
     koreaQueued: "Your Korea visa query is queued.",
@@ -1189,6 +1190,7 @@ const translations = {
     koreaApplicationNo: "申请编号",
     koreaApplicationDate: "申请日期",
     koreaEntryPurpose: "入境目的",
+    koreaProgressStatus: "进行状态",
     koreaSave: "保存韩国签证档案",
     koreaQuerying: "正在查询韩国签证门户，请稍候。",
     koreaQueued: "韩国签证查询已加入队列。",
@@ -3718,9 +3720,12 @@ function KoreaCaseDetail(props: {
 
             return (
               <div className="timeline-item" key={item.id}>
-                <div className="timeline-header">
+                <div className="korea-history-header">
+                  <div className="korea-history-status-group">
+                    <span className="korea-history-status-label">{props.t("koreaProgressStatus")}</span>
+                    <span className={getStatusBadgeClass(status, "korea-history-status")}>{status}</span>
+                  </div>
                   <span className="timeline-time">{formatTime(item.fetchedAt, props.languageMode)}</span>
-                  <span className={getStatusBadgeClass(status)}>{status}</span>
                 </div>
                 {detailLines.length > 0 && (
                   <div className="timeline-desc-list">
