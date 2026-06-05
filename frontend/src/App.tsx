@@ -1450,10 +1450,10 @@ function formatAccountTier(value: AccountTier, t: (key: TranslationKey) => strin
 
 function getStatusTone(status: string | null | undefined): "issued" | "approved" | "refused" | "idle" | "" {
   const normalized = (status ?? "").trim().toLowerCase();
-  if (normalized === "issued" || normalized.includes("签发") || normalized.includes("발급") || /^审核中\s*\(\s*\d{4}\.\d{2}\.\d{2}\.\s*\)$/.test(normalized)) {
+  if (normalized === "issued" || normalized.includes("签发") || normalized.includes("발급")) {
     return "issued";
   }
-  if (normalized === "approved") {
+  if (normalized === "approved" || /^审核中\s*\(\s*\d{4}\.\d{2}\.\d{2}\.\s*\)$/.test(normalized)) {
     return "approved";
   }
   if (
