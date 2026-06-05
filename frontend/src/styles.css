@@ -21,7 +21,7 @@
   
   --semantic-success: #27a644;
   --semantic-approved: #27a644;
-  --semantic-issued: #2f81f7;
+  --semantic-issued: #15803d;
   --danger: #e5484d;
   --semantic-overlay: #000000;
   --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.35);
@@ -55,7 +55,7 @@
   
   --semantic-success: #27a644;
   --semantic-approved: #15803d;
-  --semantic-issued: #2563eb;
+  --semantic-issued: #22c55e;
   --danger: #e5484d;
   --semantic-overlay: rgba(255, 255, 255, 0.8);
   --shadow-lg: 0 18px 50px rgba(15, 23, 42, 0.16);
