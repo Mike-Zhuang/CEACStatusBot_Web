@@ -30,6 +30,7 @@ SENSITIVE_KOREA_COLUMNS = {"passport_number", "english_name", "birth_date", "rec
 REQUEST_TIMEOUT = (10, 45)
 KOREA_ISSUED_STATUS_KEYWORDS = ("签发", "발급", "issued")
 KOREA_REFUSED_STATUS_KEYWORDS = ("拒签", "不许", "不许可", "불허", "거부", "refused", "rejected", "denied")
+KOREA_DATED_REVIEW_STATUS_PATTERN = re.compile(r"审核中\s*\(\s*\d{4}\.\d{2}\.\d{2}\.\s*\)")
 
 
 def normalizeText(value: str) -> str:
@@ -63,6 +64,10 @@ def isKoreaIssuedStatus(status: str | None) -> bool:
 def isKoreaTerminalStatus(status: str | None) -> bool:
     normalized = normalizeText(status or "").lower()
     return isKoreaIssuedStatus(normalized) or any(keyword in normalized for keyword in KOREA_REFUSED_STATUS_KEYWORDS)
+
+
+def isKoreaDatedReviewStatus(status: str | None) -> bool:
+    return KOREA_DATED_REVIEW_STATUS_PATTERN.fullmatch(normalizeText(status or "")) is not None
 
 
 def parseKoreaVisaStatusHtml(html: str) -> dict[str, Any]:
@@ -351,7 +356,16 @@ def sendKoreaNotification(
         lines.append("电子签证确认书：官网可下载")
     lines.extend(["", str(result.get("description", ""))])
     caseForEmail = {**case, "id": None}
-    sendCaseEmail(caseForEmail, smtpConfig, subject, "\n".join(lines), emailType="korea_status", connection=connection)
+    includeSupport = isKoreaTerminalStatus(str(result.get("status", ""))) or isKoreaDatedReviewStatus(str(result.get("status", "")))
+    sendCaseEmail(
+        caseForEmail,
+        smtpConfig,
+        subject,
+        "\n".join(lines),
+        emailType="korea_status",
+        connection=connection,
+        includeSupport=includeSupport,
+    )
 
 
 def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict[str, Any]:

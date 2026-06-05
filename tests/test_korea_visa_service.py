@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from CEACStatusBot.web.database import getConnection
-from CEACStatusBot.web.korea_visa_service import createKoreaCase, getKoreaCase, listKoreaHistory, runKoreaCaseQuery
+from CEACStatusBot.web.korea_visa_service import createKoreaCase, getKoreaCase, listKoreaHistory, runKoreaCaseQuery, sendKoreaNotification
 from CEACStatusBot.web.schemas import KoreaCaseInput
 
 
@@ -54,6 +54,34 @@ def pendingResult() -> dict[str, Any]:
         "description": "",
         "no_data": False,
     }
+
+
+def datedReviewResult() -> dict[str, Any]:
+    result = pendingResult()
+    result["status"] = "审核中 (2026.06.04.)"
+    return result
+
+
+def test_korea_dated_review_email_includes_support(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fakeSendCaseEmail(*args: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr("CEACStatusBot.web.korea_visa_service.sendCaseEmail", fakeSendCaseEmail)
+
+    sendKoreaNotification(
+        {
+            "display_name": "Korea test profile",
+            "passport_number": "P1234567",
+            "english_name": "TEST USER",
+        },
+        None,
+        datedReviewResult(),
+    )
+
+    assert captured["emailType"] == "korea_status"
+    assert captured["includeSupport"] is True
 
 
 def test_korea_terminal_result_stops_automatic_query(monkeypatch, createUser) -> None:

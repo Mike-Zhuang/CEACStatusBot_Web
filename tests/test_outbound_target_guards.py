@@ -8,6 +8,7 @@ from CEACStatusBot.request.query import build_ceac_url
 from CEACStatusBot.web.ircc_portal_service import IRCC_API_BASE_URL, apiGet, buildIrccApiUrl
 from CEACStatusBot.web.korea_visa_service import (
     KOREA_VISA_STATUS_URL,
+    isKoreaDatedReviewStatus,
     isKoreaTerminalStatus,
     parseKoreaVisaStatusHtml,
     queryKoreaVisaStatus,
@@ -93,6 +94,12 @@ def test_korea_terminal_status_detection() -> None:
         assert isKoreaTerminalStatus(status)
     for status in ("审核中", "受理", "暂无查询资料", ""):
         assert not isKoreaTerminalStatus(status)
+
+
+def test_korea_dated_review_status_detection() -> None:
+    assert isKoreaDatedReviewStatus("审核中 (2026.06.04.)")
+    assert not isKoreaDatedReviewStatus("审核中")
+    assert not isKoreaTerminalStatus("审核中 (2026.06.04.)")
 
 
 def test_gts_query_uses_fixed_targets(monkeypatch: pytest.MonkeyPatch) -> None:
