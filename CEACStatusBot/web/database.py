@@ -343,6 +343,10 @@ def initializeDatabase() -> None:
                 last_application_no TEXT NOT NULL DEFAULT '',
                 last_application_date TEXT NOT NULL DEFAULT '',
                 last_entry_purpose TEXT NOT NULL DEFAULT '',
+                last_visa_type TEXT NOT NULL DEFAULT '',
+                last_stay_qualification TEXT NOT NULL DEFAULT '',
+                last_entry_expiry_date TEXT NOT NULL DEFAULT '',
+                last_visa_certificate_available INTEGER NOT NULL DEFAULT 0,
                 last_status TEXT NOT NULL DEFAULT '',
                 last_error_message TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
@@ -358,6 +362,10 @@ def initializeDatabase() -> None:
                 application_no TEXT NOT NULL DEFAULT '',
                 application_date TEXT NOT NULL DEFAULT '',
                 entry_purpose TEXT NOT NULL DEFAULT '',
+                visa_type TEXT NOT NULL DEFAULT '',
+                stay_qualification TEXT NOT NULL DEFAULT '',
+                entry_expiry_date TEXT NOT NULL DEFAULT '',
+                visa_certificate_available INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT '',
                 fetched_at TEXT NOT NULL,
                 raw_payload TEXT NOT NULL,
@@ -507,6 +515,46 @@ def initializeDatabase() -> None:
         if "sort_order" not in irccColumns:
             connection.execute(
                 "ALTER TABLE ircc_cases ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+            )
+        koreaCaseColumns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(korea_cases)").fetchall()
+        }
+        if "last_visa_type" not in koreaCaseColumns:
+            connection.execute(
+                "ALTER TABLE korea_cases ADD COLUMN last_visa_type TEXT NOT NULL DEFAULT ''",
+            )
+        if "last_stay_qualification" not in koreaCaseColumns:
+            connection.execute(
+                "ALTER TABLE korea_cases ADD COLUMN last_stay_qualification TEXT NOT NULL DEFAULT ''",
+            )
+        if "last_entry_expiry_date" not in koreaCaseColumns:
+            connection.execute(
+                "ALTER TABLE korea_cases ADD COLUMN last_entry_expiry_date TEXT NOT NULL DEFAULT ''",
+            )
+        if "last_visa_certificate_available" not in koreaCaseColumns:
+            connection.execute(
+                "ALTER TABLE korea_cases ADD COLUMN last_visa_certificate_available INTEGER NOT NULL DEFAULT 0",
+            )
+        koreaHistoryColumns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(korea_status_history)").fetchall()
+        }
+        if "visa_type" not in koreaHistoryColumns:
+            connection.execute(
+                "ALTER TABLE korea_status_history ADD COLUMN visa_type TEXT NOT NULL DEFAULT ''",
+            )
+        if "stay_qualification" not in koreaHistoryColumns:
+            connection.execute(
+                "ALTER TABLE korea_status_history ADD COLUMN stay_qualification TEXT NOT NULL DEFAULT ''",
+            )
+        if "entry_expiry_date" not in koreaHistoryColumns:
+            connection.execute(
+                "ALTER TABLE korea_status_history ADD COLUMN entry_expiry_date TEXT NOT NULL DEFAULT ''",
+            )
+        if "visa_certificate_available" not in koreaHistoryColumns:
+            connection.execute(
+                "ALTER TABLE korea_status_history ADD COLUMN visa_certificate_available INTEGER NOT NULL DEFAULT 0",
             )
         emailDeliveryLogColumns = {
             row["name"]

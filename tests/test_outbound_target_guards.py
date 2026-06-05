@@ -6,7 +6,12 @@ import pytest
 
 from CEACStatusBot.request.query import build_ceac_url
 from CEACStatusBot.web.ircc_portal_service import IRCC_API_BASE_URL, apiGet, buildIrccApiUrl
-from CEACStatusBot.web.korea_visa_service import KOREA_VISA_STATUS_URL, parseKoreaVisaStatusHtml, queryKoreaVisaStatus
+from CEACStatusBot.web.korea_visa_service import (
+    KOREA_VISA_STATUS_URL,
+    isKoreaTerminalStatus,
+    parseKoreaVisaStatusHtml,
+    queryKoreaVisaStatus,
+)
 from CEACStatusBot.web.passport_slot_service import GTS_API_BASE_URL, fetchPassportSlotAvailability
 
 
@@ -61,6 +66,33 @@ def test_korea_parser_extracts_structured_status() -> None:
     assert result["application_date"] == "2026-05-30"
     assert result["entry_purpose"] == "观光.过境"
     assert result["status"] == "审核中"
+
+
+def test_korea_parser_extracts_issued_details() -> None:
+    result = parseKoreaVisaStatusHtml(
+        """
+        <div id="ONLINE_APPL_NO">0600000000000</div>
+        <div id="ENTRY_PURPOSE">观光.过境</div>
+        <div id="PROC_STS_CDNM_1">签发 (2026.06.04.)</div>
+        <div id="VISA_KIND_CD">多次</div>
+        <div id="SOJ_QUAL_NM">C-3-9</div>
+        <div id="VISA_EXPR_YMD">(2036.06.04.)</div>
+        <button>发放电子签证确认书</button>
+        """
+    )
+
+    assert result["status"] == "签发 (2026.06.04.)"
+    assert result["visa_type"] == "多次"
+    assert result["stay_qualification"] == "C-3-9"
+    assert result["entry_expiry_date"] == "(2036.06.04.)"
+    assert result["visa_certificate_available"] is True
+
+
+def test_korea_terminal_status_detection() -> None:
+    for status in ("签发 (2026.06.04.)", "발급", "issued", "拒签 (2026.06.04.)", "불허", "rejected", "denied"):
+        assert isKoreaTerminalStatus(status)
+    for status in ("审核中", "受理", "暂无查询资料", ""):
+        assert not isKoreaTerminalStatus(status)
 
 
 def test_gts_query_uses_fixed_targets(monkeypatch: pytest.MonkeyPatch) -> None:

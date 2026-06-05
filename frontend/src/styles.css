@@ -1142,6 +1142,13 @@ select:focus {
   align-items: start;
 }
 
+.section-kicker {
+  color: var(--ink-subtle);
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
 .ircc-detail-stack {
   display: grid;
   gap: 24px;

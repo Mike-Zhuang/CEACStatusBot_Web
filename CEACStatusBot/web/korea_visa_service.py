@@ -28,6 +28,8 @@ KOREA_QUERY_TIMEOUT_ERROR_MESSAGE = "韩国签证查询运行超过系统设定�
 KOREA_NO_DATA_STATUS = "暂无查询资料"
 SENSITIVE_KOREA_COLUMNS = {"passport_number", "english_name", "birth_date", "receive_email"}
 REQUEST_TIMEOUT = (10, 45)
+KOREA_ISSUED_STATUS_KEYWORDS = ("签发", "발급", "issued")
+KOREA_REFUSED_STATUS_KEYWORDS = ("拒签", "不许", "不许可", "불허", "거부", "refused", "rejected", "denied")
 
 
 def normalizeText(value: str) -> str:
@@ -53,19 +55,37 @@ def buildSnapshotHash(snapshot: dict[str, Any]) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
+def isKoreaIssuedStatus(status: str | None) -> bool:
+    normalized = normalizeText(status or "").lower()
+    return any(keyword in normalized for keyword in KOREA_ISSUED_STATUS_KEYWORDS)
+
+
+def isKoreaTerminalStatus(status: str | None) -> bool:
+    normalized = normalizeText(status or "").lower()
+    return isKoreaIssuedStatus(normalized) or any(keyword in normalized for keyword in KOREA_REFUSED_STATUS_KEYWORDS)
+
+
 def parseKoreaVisaStatusHtml(html: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "lxml")
     applicationNo = readDivText(soup, "ONLINE_APPL_NO") or readDivText(soup, "INVITEE_SEQ")
     applicationDate = readDivText(soup, "APPL_DTM") or readDivText(soup, "APPL_YMD")
     entryPurpose = readDivText(soup, "ENTRY_PURPOSE")
     status = readDivText(soup, "PROC_STS_CDNM_1") or readDivText(soup, "PROC_STS_CDNM")
+    visaType = readDivText(soup, "VISA_KIND_CD")
+    stayQualification = readDivText(soup, "SOJ_QUAL_NM")
+    entryExpiryDate = readDivText(soup, "VISA_EXPR_YMD")
+    visaCertificateAvailable = isKoreaIssuedStatus(status) and "发放电子签证确认书" in soup.get_text(" ", strip=True)
 
-    if applicationNo or applicationDate or entryPurpose or status:
+    if applicationNo or applicationDate or entryPurpose or status or visaType or stayQualification or entryExpiryDate:
         return {
             "success": True,
             "application_no": applicationNo,
             "application_date": applicationDate,
             "entry_purpose": entryPurpose,
+            "visa_type": visaType,
+            "stay_qualification": stayQualification,
+            "entry_expiry_date": entryExpiryDate,
+            "visa_certificate_available": visaCertificateAvailable,
             "status": status or "未知状态",
             "description": "",
             "no_data": False,
@@ -76,6 +96,10 @@ def parseKoreaVisaStatusHtml(html: str) -> dict[str, Any]:
             "application_no": "",
             "application_date": "",
             "entry_purpose": "",
+            "visa_type": "",
+            "stay_qualification": "",
+            "entry_expiry_date": "",
+            "visa_certificate_available": False,
             "status": KOREA_NO_DATA_STATUS,
             "description": "韩国签证门户返回：没有您要查询的资料。",
             "no_data": True,
@@ -150,6 +174,10 @@ def normalizeKoreaCaseRow(row: dict[str, Any]) -> dict[str, Any]:
         "lastApplicationNo": row.get("last_application_no") or "",
         "lastApplicationDate": row.get("last_application_date") or "",
         "lastEntryPurpose": row.get("last_entry_purpose") or "",
+        "lastVisaType": row.get("last_visa_type") or "",
+        "lastStayQualification": row.get("last_stay_qualification") or "",
+        "lastEntryExpiryDate": row.get("last_entry_expiry_date") or "",
+        "lastVisaCertificateAvailable": bool(row.get("last_visa_certificate_available", 0)),
         "lastStatus": row.get("last_status") or "",
         "lastErrorMessage": row.get("last_error_message") or "",
         "createdAt": row["created_at"],
@@ -315,9 +343,13 @@ def sendKoreaNotification(
         f"申请编号：{result.get('application_no', '') or '-'}",
         f"申请日期：{result.get('application_date', '') or '-'}",
         f"入境目的：{result.get('entry_purpose', '') or '-'}",
-        "",
-        str(result.get("description", "")),
+        f"签证类型：{result.get('visa_type', '') or '-'}",
+        f"停留资格：{result.get('stay_qualification', '') or '-'}",
+        f"入境到期日：{result.get('entry_expiry_date', '') or '-'}",
     ]
+    if result.get("visa_certificate_available"):
+        lines.append("电子签证确认书：官网可下载")
+    lines.extend(["", str(result.get("description", ""))])
     caseForEmail = {**case, "id": None}
     sendCaseEmail(caseForEmail, smtpConfig, subject, "\n".join(lines), emailType="korea_status", connection=connection)
 
@@ -353,6 +385,10 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
                 "application_no": result.get("application_no", ""),
                 "application_date": result.get("application_date", ""),
                 "entry_purpose": result.get("entry_purpose", ""),
+                "visa_type": result.get("visa_type", ""),
+                "stay_qualification": result.get("stay_qualification", ""),
+                "entry_expiry_date": result.get("entry_expiry_date", ""),
+                "visa_certificate_available": bool(result.get("visa_certificate_available")),
                 "status": result.get("status", ""),
                 "no_data": bool(result.get("no_data")),
             },
@@ -367,6 +403,7 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
     durationMs = int((finished - started).total_seconds() * 1000)
     with getConnection() as connection:
         if success:
+            isTerminalStatus = isKoreaTerminalStatus(str(result.get("status", "")))
             if changed:
                 shouldNotify = previous is not None and bool(row["email_notifications_enabled"])
                 if shouldNotify:
@@ -379,9 +416,10 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
                     """
                     INSERT INTO korea_status_history (
                         case_id, snapshot_hash, application_no, application_date,
-                        entry_purpose, status, fetched_at, raw_payload, notification_sent
+                        entry_purpose, visa_type, stay_qualification, entry_expiry_date,
+                        visa_certificate_available, status, fetched_at, raw_payload, notification_sent
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         caseId,
@@ -389,6 +427,10 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
                         str(result.get("application_no", "")),
                         str(result.get("application_date", "")),
                         str(result.get("entry_purpose", "")),
+                        str(result.get("visa_type", "")),
+                        str(result.get("stay_qualification", "")),
+                        str(result.get("entry_expiry_date", "")),
+                        int(bool(result.get("visa_certificate_available"))),
                         str(result.get("status", "")),
                         finishedIso,
                         encryptSecret(json.dumps(result, ensure_ascii=False, default=str)),
@@ -400,11 +442,16 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
                 UPDATE korea_cases
                 SET last_checked_at = ?,
                     next_check_at = ?,
+                    is_enabled = ?,
                     last_trigger_type = ?,
                     last_snapshot_hash = ?,
                     last_application_no = ?,
                     last_application_date = ?,
                     last_entry_purpose = ?,
+                    last_visa_type = ?,
+                    last_stay_qualification = ?,
+                    last_entry_expiry_date = ?,
+                    last_visa_certificate_available = ?,
                     last_status = ?,
                     last_error_message = '',
                     updated_at = ?
@@ -412,12 +459,17 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
                 """,
                 (
                     finishedIso,
-                    computeNextCheckAt(finished) if bool(row["is_enabled"]) else None,
+                    None if isTerminalStatus else computeNextCheckAt(finished) if bool(row["is_enabled"]) else None,
+                    0 if isTerminalStatus else int(row["is_enabled"]),
                     triggerType,
                     snapshotHash,
                     str(result.get("application_no", "")),
                     str(result.get("application_date", "")),
                     str(result.get("entry_purpose", "")),
+                    str(result.get("visa_type", "")),
+                    str(result.get("stay_qualification", "")),
+                    str(result.get("entry_expiry_date", "")),
+                    int(bool(result.get("visa_certificate_available"))),
                     str(result.get("status", "")),
                     finishedIso,
                     caseId,
@@ -471,6 +523,10 @@ def listKoreaHistory(caseId: int, userId: int | None = None) -> list[dict[str, A
             "applicationNo": row["application_no"],
             "applicationDate": row["application_date"],
             "entryPurpose": row["entry_purpose"],
+            "visaType": row["visa_type"],
+            "stayQualification": row["stay_qualification"],
+            "entryExpiryDate": row["entry_expiry_date"],
+            "visaCertificateAvailable": bool(row["visa_certificate_available"]),
             "status": row["status"],
             "fetchedAt": row["fetched_at"],
             "rawPayload": json.loads(decryptIfNeeded(row["raw_payload"]) or "{}"),
@@ -696,6 +752,10 @@ def sendCurrentKoreaEmail(caseId: int, userId: int | None = None) -> dict[str, A
         "application_no": latest["application_no"],
         "application_date": latest["application_date"],
         "entry_purpose": latest["entry_purpose"],
+        "visa_type": latest["visa_type"],
+        "stay_qualification": latest["stay_qualification"],
+        "entry_expiry_date": latest["entry_expiry_date"],
+        "visa_certificate_available": bool(latest["visa_certificate_available"]),
         "status": latest["status"],
         "description": "",
     }

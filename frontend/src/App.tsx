@@ -150,6 +150,10 @@ interface KoreaCase {
   lastApplicationNo: string;
   lastApplicationDate: string;
   lastEntryPurpose: string;
+  lastVisaType: string;
+  lastStayQualification: string;
+  lastEntryExpiryDate: string;
+  lastVisaCertificateAvailable: boolean;
   lastStatus: string;
   lastErrorMessage: string;
   createdAt: string;
@@ -187,6 +191,10 @@ interface KoreaHistoryItem {
   applicationNo: string;
   applicationDate: string;
   entryPurpose: string;
+  visaType: string;
+  stayQualification: string;
+  entryExpiryDate: string;
+  visaCertificateAvailable: boolean;
   status: string;
   fetchedAt: string;
   rawPayload: Record<string, unknown>;
@@ -922,6 +930,12 @@ const translations = {
     koreaApplicationDate: "Application date",
     koreaEntryPurpose: "Entry purpose",
     koreaProgressStatus: "Progress status",
+    koreaVisaType: "Visa type",
+    koreaStayQualification: "Stay qualification",
+    koreaEntryExpiryDate: "Entry expiry date",
+    koreaVisaCertificate: "Electronic visa confirmation",
+    koreaVisaCertificateAvailable: "Available on the official portal",
+    koreaIssuedDetails: "Issued visa details",
     koreaSave: "Save Korea profile",
     koreaQuerying: "Querying Korea Visa Portal. Please wait.",
     koreaQueued: "Your Korea visa query is queued.",
@@ -1191,6 +1205,12 @@ const translations = {
     koreaApplicationDate: "申请日期",
     koreaEntryPurpose: "入境目的",
     koreaProgressStatus: "进行状态",
+    koreaVisaType: "签证类型",
+    koreaStayQualification: "停留资格",
+    koreaEntryExpiryDate: "入境到期日",
+    koreaVisaCertificate: "电子签证确认书",
+    koreaVisaCertificateAvailable: "官网可下载",
+    koreaIssuedDetails: "签发信息",
     koreaSave: "保存韩国签证档案",
     koreaQuerying: "正在查询韩国签证门户，请稍候。",
     koreaQueued: "韩国签证查询已加入队列。",
@@ -1430,13 +1450,22 @@ function formatAccountTier(value: AccountTier, t: (key: TranslationKey) => strin
 
 function getStatusTone(status: string | null | undefined): "issued" | "approved" | "refused" | "idle" | "" {
   const normalized = (status ?? "").trim().toLowerCase();
-  if (normalized === "issued") {
+  if (normalized === "issued" || normalized.includes("签发") || normalized.includes("발급")) {
     return "issued";
   }
   if (normalized === "approved") {
     return "approved";
   }
-  if (normalized === "refused") {
+  if (
+    normalized === "refused"
+    || normalized.includes("拒签")
+    || normalized.includes("不许")
+    || normalized.includes("不许可")
+    || normalized.includes("불허")
+    || normalized.includes("거부")
+    || normalized.includes("rejected")
+    || normalized.includes("denied")
+  ) {
     return "refused";
   }
   if (normalized.includes("暂无查询资料") || normalized.includes("no data")) {
@@ -3637,6 +3666,12 @@ function KoreaCaseDetail(props: {
       return rightTime - leftTime || right.id - left.id;
     });
   }, [props.history]);
+  const hasIssuedDetails = Boolean(
+    props.targetCase.lastVisaType
+    || props.targetCase.lastStayQualification
+    || props.targetCase.lastEntryExpiryDate
+    || props.targetCase.lastVisaCertificateAvailable,
+  );
 
   return (
     <>
@@ -3680,6 +3715,19 @@ function KoreaCaseDetail(props: {
               </span>
             </Metric>
           </div>
+          {hasIssuedDetails && (
+            <>
+              <div className="section-kicker">{props.t("koreaIssuedDetails")}</div>
+              <div className="two-col metric-grid">
+                <Metric icon={<FileText size={14} />} label={props.t("koreaVisaType")} value={props.targetCase.lastVisaType || "-"} />
+                <Metric icon={<FileText size={14} />} label={props.t("koreaStayQualification")} value={props.targetCase.lastStayQualification || "-"} />
+              </div>
+              <div className="two-col metric-grid">
+                <Metric icon={<Clock size={14} />} label={props.t("koreaEntryExpiryDate")} value={props.targetCase.lastEntryExpiryDate || "-"} />
+                <Metric icon={<FileText size={14} />} label={props.t("koreaVisaCertificate")} value={props.targetCase.lastVisaCertificateAvailable ? props.t("koreaVisaCertificateAvailable") : "-"} />
+              </div>
+            </>
+          )}
           <div className="two-col metric-grid">
             <Metric icon={<Clock size={14} />} label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
             <Metric icon={<Activity size={14} />} label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
@@ -3715,6 +3763,10 @@ function KoreaCaseDetail(props: {
               item.applicationNo ? `${props.t("koreaApplicationNo")}: ${item.applicationNo}` : "",
               item.applicationDate ? `${props.t("koreaApplicationDate")}: ${item.applicationDate}` : "",
               item.entryPurpose ? `${props.t("koreaEntryPurpose")}: ${item.entryPurpose}` : "",
+              item.visaType ? `${props.t("koreaVisaType")}: ${item.visaType}` : "",
+              item.stayQualification ? `${props.t("koreaStayQualification")}: ${item.stayQualification}` : "",
+              item.entryExpiryDate ? `${props.t("koreaEntryExpiryDate")}: ${item.entryExpiryDate}` : "",
+              item.visaCertificateAvailable ? `${props.t("koreaVisaCertificate")}: ${props.t("koreaVisaCertificateAvailable")}` : "",
             ].filter(Boolean);
             const status = item.status || props.t("noStatus");
 
