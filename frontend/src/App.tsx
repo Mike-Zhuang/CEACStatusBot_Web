@@ -2706,6 +2706,7 @@ export function App() {
   if (!user) {
     return (
       <main className="auth-shell">
+        <a className="skip-link" href="#main-content">{languageMode === "zh" ? "跳到主要内容" : "Skip to content"}</a>
         <div className="auth-tools">
           <LanguageButton languageMode={languageMode} setLanguageMode={setLanguageMode} />
           <ThemeButton themeMode={themeMode} setThemeMode={setThemeMode} t={t} />
@@ -2715,7 +2716,7 @@ export function App() {
           <h1 className="display-md">CEACStatusBot</h1>
           <p className="body">{t("appSubtitle")}</p>
         </div>
-        <section className="auth-panel">
+        <section className="auth-panel" id="main-content">
           <form className="stack" onSubmit={submitAuth}>
             <div className="segmented">
               <button type="button" className={authMode === "login" ? "selected" : ""} onClick={() => setAuthMode("login")}>
@@ -2838,6 +2839,7 @@ export function App() {
 
   return (
     <main className="app-shell">
+      <a className="skip-link" href="#main-content">{languageMode === "zh" ? "跳到主要内容" : "Skip to content"}</a>
       <header className="top-nav">
         <div className="top-nav-main">
           <div className="brand-lockup">
@@ -2874,10 +2876,10 @@ export function App() {
         </div>
       </header>
 
-      <section className="workspace">
+      <section className="workspace" id="main-content">
         <header className="page-header">
           <div>
-            <p className="eyebrow" style={{ color: 'var(--primary-hover)' }}>{t("currentLogin")}: {user.email}</p>
+            <p className="eyebrow eyebrow-accent">{t("currentLogin")}: {user.email}</p>
             <h1 className="headline">
               {viewMode === "admin" ? t("adminTitle") : viewMode === "profile" ? t("personalInfo") : t("statusMonitoring")}
             </h1>
@@ -3071,7 +3073,7 @@ export function App() {
                       </div>
                     </div>
                     
-                    <div className="stack" style={{ marginBottom: "24px" }}>
+                    <div className="stack stack-spaced">
                       {isIssuedStatus(selectedCase.lastStatus) && selectedCase.isEnabled && (
                         <div className="notice action-notice">
                           <span>{t("issuedSlowQueryNotice")}</span>
@@ -4169,7 +4171,6 @@ function ThemeButton(props: { themeMode: ThemeMode; setThemeMode: (mode: ThemeMo
       className="button tertiary theme-toggle"
       onClick={() => props.setThemeMode(props.themeMode === "dark" ? "light" : "dark")}
       title={nextTitle}
-      style={{ padding: "8px" }}
     >
       {props.themeMode === "dark" ? <Sun size={16} /> : <Moon size={16} />}
     </button>
@@ -5493,7 +5494,7 @@ function CaseFormView(props: {
       )}
       </div>
 
-      <div style={{ marginTop: "16px" }}>
+      <div className="form-actions">
         <button className="button primary" disabled={props.isBusy}>{props.t("save")}</button>
       </div>
     </form>
