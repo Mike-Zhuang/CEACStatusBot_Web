@@ -1,7 +1,16 @@
 ## Scope
 
-- **Normative（必须遵守）**：本文件 §Overview 中的 CEACStatusBot 产品业务规则，以及 §CEACStatusBot Brand Icon 中的图标使用规则。
-- **Reference only（仅供参考，非实现约束）**：从 Linear 营销站提取的颜色、排版、布局与组件命名（§Colors 及之后各节）。Dashboard 产品 UI 以工具界面为准，暗色为默认主题，亮色主题同等支持；营销站 display 尺度与 eyebrow 分类学不适用于本应用。
+- **Normative（必须遵守）**：本文件 §Overview 中的 CEACStatusBot 产品业务规则、§CEACStatusBot Brand Icon 图标规则，以及下方「解密案卷」产品视觉方向。
+- **Reference only（仅供参考，非实现约束）**：从 Linear 营销站提取的颜色、排版、布局与组件命名（§Colors 及之后各节）。不得再作为实现约束。
+
+## 解密案卷视觉方向（Normative）
+
+产品 UI 采用 **案卷文书 + 终端遥测 + 编辑极简** 的综合语言，刻意远离 Linear 紫 SaaS 仪表盘：
+
+- **色彩**：墨蓝案卷底（暗）/ 暖骨纸底（亮）；主 CTA 官方蓝 `#3d5a80`；护照绿语义；薰衣草紫仅作次要链接色。
+- **字体**：Newsreader 衬线用于状态英雄区；IBM Plex Sans 用于界面；IBM Plex Mono 用于案号与时间戳。
+- **布局**：左侧 App Rail 导航；Dashboard 侧栏仅档案列表；详情为 StatusHero + 字段表；Support QR 在页脚/个人资料。
+- **组件**：方角 status-stage 标签；回执式时间线；无 Lucide 装饰图标墙。
 
 ## Overview
 

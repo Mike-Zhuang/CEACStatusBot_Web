@@ -8,8 +8,16 @@ interface EmptyStateProps {
 }
 
 export function EmptyState(props: EmptyStateProps) {
+  if (props.compact) {
+    return (
+      <p className="empty-state-inline">
+        {props.title}
+        {props.action}
+      </p>
+    );
+  }
   return (
-    <div className={`empty-state ${props.compact ? "compact" : ""}`}>
+    <div className="empty-state">
       <div className="empty-state-copy">
         <h3 className="empty-state-title">{props.title}</h3>
         {props.description && <p className="empty-state-description">{props.description}</p>}

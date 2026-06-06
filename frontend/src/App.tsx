@@ -1,38 +1,22 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
-  ArrowDown,
-  ArrowUp,
-  CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  HeartHandshake,
-  Landmark,
-  TreePine,
-  Map as LucideMap,
-  Mail,
-  History,
   LogOut,
   Moon,
   Plus,
-  Shield,
   Sun,
   Trash2,
-  UserRound,
-  User,
   X,
-  MapPin,
-  FileText,
-  Clock,
-  Bell,
-  Server,
-  CloudLightning,
 } from "lucide-react";
 import { ceacLocations } from "./locations";
+import { AppRail } from "./components/app-rail";
 import { ConfirmDialog } from "./components/confirm-dialog";
+import { CountrySegment } from "./components/country-segment";
 import { EmptyState } from "./components/empty-state";
 import { SettingsToggle } from "./components/settings-toggle";
+import { FieldSheet } from "./components/field-sheet";
+import { StatusHero } from "./components/status-hero";
 import { useToast } from "./components/use-toast";
 
 type ThemeMode = "dark" | "light";
@@ -1504,7 +1488,7 @@ function getStatusTone(status: string | null | undefined): "issued" | "approved"
 
 function getStatusBadgeClass(status: string | null | undefined, extraClass = ""): string {
   const tone = getStatusTone(status);
-  return ["status-badge", tone ? `status-${tone}` : "", extraClass].filter(Boolean).join(" ");
+  return ["status-stage", tone ? `status-${tone}` : "", extraClass].filter(Boolean).join(" ");
 }
 
 function isIssuedStatus(status: string | null | undefined): boolean {
@@ -2802,12 +2786,15 @@ export function App() {
           <LanguageButton languageMode={languageMode} setLanguageMode={setLanguageMode} />
           <ThemeButton themeMode={themeMode} setThemeMode={setThemeMode} t={t} />
         </div>
-        <div className="auth-header">
-          <img className="brand-mark" src="/favicon.svg" alt="CEACStatusBot" />
-          <h1 className="display-md">CEACStatusBot</h1>
-          <p className="body">{t("appSubtitle")}</p>
-        </div>
-        <section className="auth-panel" id="main-content">
+        <div className="auth-split">
+          <div className="auth-narrative">
+            <img className="brand-mark" src="/favicon.svg" alt="CEACStatusBot" />
+            <h1>CEACStatusBot</h1>
+            <p className="auth-narrative-lead">{t("appSubtitle")}</p>
+            <p className="auth-narrative-note">{t("publicNoticeDisclaimer")}</p>
+          </div>
+          <div className="auth-form-column">
+            <section className="auth-panel" id="main-content">
           <form className="stack" onSubmit={submitAuth}>
             <div className="segmented">
               <button type="button" className={authMode === "login" ? "selected" : ""} onClick={() => setAuthMode("login")}>
@@ -2877,7 +2864,6 @@ export function App() {
             {authMode === "register" && (
               <div className="terms-box">
                 <div className="support-title">
-                  <Shield size={16} />
                   <span>{t("termsTitle")}</span>
                 </div>
                 <p>{t("termsBody")}</p>
@@ -2919,8 +2905,9 @@ export function App() {
               </button>
             )}
           </form>
-        </section>
-        <PublicNoticePanel t={t} />
+            </section>
+          </div>
+        </div>
         <SiteFooter t={t} />
         {isTermsDialogOpen && <TermsDialog t={t} languageMode={languageMode} onClose={() => setIsTermsDialogOpen(false)} />}
       </main>
@@ -2928,45 +2915,35 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
-      <a className="skip-link" href="#main-content">{languageMode === "zh" ? "跳到主要内容" : "Skip to content"}</a>
-      <header className="top-nav">
-        <div className="top-nav-main">
+    <div className="app-frame">
+      <AppRail
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        isAdmin={user.role === "admin"}
+        onAdminSelect={() => {
+          setViewMode("admin");
+          void loadAdminData();
+          void loadAdminQueueData();
+        }}
+        labels={{ dashboard: t("dashboard"), profile: t("personalInfo"), admin: t("admin") }}
+      />
+      <div className="app-main">
+        <a className="skip-link" href="#main-content">{languageMode === "zh" ? "跳到主要内容" : "Skip to content"}</a>
+        <header className="top-nav">
           <div className="brand-lockup">
             <img className="brand-mark" src="/favicon.svg" alt="" />
             <span className="brand-name">CEACStatusBot</span>
           </div>
-        </div>
-        <nav className="nav-actions" aria-label="Primary">
-          <button className={`nav-tab ${viewMode === "dashboard" ? "active" : ""}`} onClick={() => setViewMode("dashboard")}>
-            <UserRound size={16} /> {t("dashboard")}
-          </button>
-          <button className={`nav-tab ${viewMode === "profile" ? "active" : ""}`} onClick={() => setViewMode("profile")}>
-            <UserRound size={16} /> {t("personalInfo")}
-          </button>
-          {user.role === "admin" && (
-            <button
-              className={`nav-tab ${viewMode === "admin" ? "active" : ""}`}
-              onClick={() => {
-                setViewMode("admin");
-                void loadAdminData();
-                void loadAdminQueueData();
-              }}
-            >
-              <Shield size={16} /> {t("admin")}
+          <div className="utility-actions">
+            <LanguageButton languageMode={languageMode} setLanguageMode={setLanguageMode} />
+            <ThemeButton themeMode={themeMode} setThemeMode={setThemeMode} t={t} />
+            <button className="button tertiary icon-only" onClick={logout} title={t("logoutTitle")} aria-label={t("logoutTitle")}>
+              <LogOut size={16} />
             </button>
-          )}
-        </nav>
-        <div className="utility-actions">
-          <LanguageButton languageMode={languageMode} setLanguageMode={setLanguageMode} />
-          <ThemeButton themeMode={themeMode} setThemeMode={setThemeMode} t={t} />
-          <button className="button tertiary icon-only" onClick={logout} title={t("logoutTitle")} aria-label={t("logoutTitle")}>
-            <LogOut size={16} />
-          </button>
-        </div>
-      </header>
+          </div>
+        </header>
 
-      <section className="workspace" id="main-content">
+        <section className="workspace" id="main-content">
         <header className="page-header">
           <div>
             <p className="meta-line">{t("currentLogin")}: {user.email}</p>
@@ -3028,10 +3005,11 @@ export function App() {
                       : profile.profileType === "ircc"
                         ? `${t("countryCanada")} · ${profile.case.applicationNumber || profile.case.appId}`
                         : `${t("countryKorea")} · ${profile.case.lastApplicationNo || profile.case.passportNumber}`;
+                    const countryClass = isCeac ? "country-us" : isKorea ? "country-kr" : "country-ca";
                     return (
                       <div
                         key={`${profile.profileType}-${item.id}`}
-                        className={`case-row hover-card ${isSelected ? "selected" : ""}`}
+                        className={`case-row hover-card ${countryClass} ${isSelected ? "selected" : ""}`}
                         onClick={() => {
                           setIsCreatingProfile(false);
                           if (isCeac) {
@@ -3050,15 +3028,12 @@ export function App() {
                           openMobileDetail();
                         }}
                       >
-                        <div className="case-row-icon">
-                          {isCeac ? <Landmark size={20} /> : isKorea ? <LucideMap size={20} /> : <TreePine size={20} />}
-                        </div>
                         <div className="case-info">
                           <div className="case-name">{item.displayName}</div>
                           <div className="case-meta">{caseMeta}</div>
                         </div>
                         <div className="case-row-actions">
-                          <div className="profile-status-slot">{statusNode}</div>
+                          <div className="case-status-primary">{statusNode}</div>
                           <div className="case-order-buttons" aria-label={languageMode === "zh" ? "调整档案顺序" : "Reorder profiles"}>
                             <button
                               type="button"
@@ -3071,7 +3046,7 @@ export function App() {
                                 void moveProfile(profile.profileType, item.id, "up");
                               }}
                             >
-                              <ArrowUp size={14} />
+                              ↑
                             </button>
                             <button
                               type="button"
@@ -3084,7 +3059,7 @@ export function App() {
                                 void moveProfile(profile.profileType, item.id, "down");
                               }}
                             >
-                              <ArrowDown size={14} />
+                              ↓
                             </button>
                           </div>
                           <ChevronRight className="case-chevron" size={18} />
@@ -3097,8 +3072,6 @@ export function App() {
                   )}
                 </div>
               </section>
-              <SupportPanel t={t} />
-              <PublicNoticePanel t={t} />
             </div>
 
             <div className="stack dashboard-detail" ref={detailPanelRef}>
@@ -3172,17 +3145,29 @@ export function App() {
                       </div>
                       <div className="row-actions">
                         <button className="button secondary" onClick={() => runTest(selectedCase.id)} disabled={isBusy}>
-                          <Activity size={16} /> {t("fastQuery")}
+                          {t("fastQuery")}
                         </button>
                         <button className="button secondary" onClick={() => sendTestEmail(selectedCase.id)} disabled={isBusy || history.length === 0}>
-                          <Mail size={16} /> {t("testEmail")}
+                          {t("testEmail")}
                         </button>
                         <button className="icon-button danger" onClick={() => requestDeleteProfile("ceac", selectedCase.id)}>
                           <Trash2 size={16} />
                         </button>
                       </div>
                     </div>
-                    
+                    <StatusHero
+                      statusLabel={t("status")}
+                      status={(
+                        <span className={getStatusBadgeClass(selectedCase.lastStatus, "metric-status")}>
+                          {selectedCase.lastStatus || t("noStatus")}
+                        </span>
+                      )}
+                      tone={getStatusTone(selectedCase.lastStatus) === "issued" ? "issued" : getStatusTone(selectedCase.lastStatus) === "approved" ? "approved" : "default"}
+                      meta={[
+                        { label: t("lastCheckedAt"), value: formatTime(selectedCase.lastCheckedAt, languageMode) },
+                        { label: t("nextCheckAt"), value: formatTime(selectedCase.nextCheckAt, languageMode) },
+                      ]}
+                    />
                     <div className="stack stack-spaced">
                       {isIssuedStatus(selectedCase.lastStatus) && selectedCase.isEnabled && (
                         <div className="notice action-notice">
@@ -3205,26 +3190,15 @@ export function App() {
                           )}
                         </div>
                       )}
-                      <div className="two-col metric-grid">
-                        <Metric icon={<MapPin size={14} />} label={t("locationMetric")} value={selectedCase.location} />
-                        <Metric icon={<FileText size={14} />} label={`${t("applicationId")} / ${t("passport")}`} value={`${selectedCase.applicationNum} / ${selectedCase.passportNumber}`} />
-                      </div>
-                      <div className="two-col metric-grid">
-                        <Metric icon={<Mail size={14} />} label={t("notifyEmail")} value={selectedCase.receiveEmail} />
-                        <Metric icon={<Activity size={14} />} label={t("status")}>
-                          <span className={getStatusBadgeClass(selectedCase.lastStatus, "metric-status")}>
-                            {selectedCase.lastStatus || t("noStatus")}
-                          </span>
-                        </Metric>
-                      </div>
-                      <div className="two-col metric-grid">
-                        <Metric icon={<Clock size={14} />} label={t("lastCheckedAt")} value={formatTime(selectedCase.lastCheckedAt, languageMode)} />
-                        <Metric icon={<Activity size={14} />} label={t("lastCheckMode")} value={formatTriggerType(selectedCase.lastTriggerType, t)} />
-                      </div>
-                      <div className="two-col metric-grid">
-                        <Metric icon={<Clock size={14} />} label={t("nextCheckAt")} value={formatTime(selectedCase.nextCheckAt, languageMode)} />
-                        <Metric icon={<Bell size={14} />} label={t("emailPushSetting")} value={selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff")} />
-                      </div>
+                      <FieldSheet
+                        fields={[
+                          { label: t("locationMetric"), value: selectedCase.location },
+                          { label: `${t("applicationId")} / ${t("passport")}`, value: `${selectedCase.applicationNum} / ${selectedCase.passportNumber}`, mono: true },
+                          { label: t("notifyEmail"), value: selectedCase.receiveEmail },
+                          { label: t("lastCheckMode"), value: formatTriggerType(selectedCase.lastTriggerType, t) },
+                          { label: t("emailPushSetting"), value: selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff") },
+                        ]}
+                      />
                       <SettingsToggle
                         label={t("emailPushSetting")}
                         description={selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff")}
@@ -3255,7 +3229,6 @@ export function App() {
                   <section className="panel">
                     <div className="panel-title">
                       <h2 className="subhead">{t("statusHistory")}</h2>
-                      <History size={18} />
                     </div>
                     <div className="timeline">
                       {history.map((record) => (
@@ -3310,20 +3283,21 @@ export function App() {
             isBusy={isBusy}
           />
         )}
-      </section>
-      <SiteFooter t={t} />
-      {pendingDelete && (
-        <ConfirmDialog
-          title={t("confirmDeleteTitle")}
-          message={t("confirmDelete")}
-          confirmLabel={t("confirmDeleteAction")}
-          cancelLabel={t("cancel")}
-          onConfirm={() => void confirmPendingDelete()}
-          onCancel={() => setPendingDelete(null)}
-          isBusy={isBusy}
-        />
-      )}
-    </main>
+        </section>
+        <SiteFooter t={t} showSupport />
+        {pendingDelete && (
+          <ConfirmDialog
+            title={t("confirmDeleteTitle")}
+            message={t("confirmDelete")}
+            confirmLabel={t("confirmDeleteAction")}
+            cancelLabel={t("cancel")}
+            onConfirm={() => void confirmPendingDelete()}
+            onCancel={() => setPendingDelete(null)}
+            isBusy={isBusy}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -3334,7 +3308,6 @@ function SupportPanel(props: { t: (key: TranslationKey) => string; compact?: boo
         <img src="/support/buy-me-a-coffee.jpg" alt={props.t("supportTitle")} />
         <div className="support-copy">
           <div className="support-title">
-            <HeartHandshake size={16} />
             <span>{props.t("supportTitle")}</span>
           </div>
           <p>{props.t("supportBody")}</p>
@@ -3354,7 +3327,6 @@ function PublicNoticePanel(props: { t: (key: TranslationKey) => string }) {
     <section className="support-card compact">
       <div className="support-copy">
         <div className="support-title">
-          <Shield size={16} />
           <span>{props.t("publicNoticeTitle")}</span>
         </div>
         <p>{props.t("publicNoticeBody")}</p>
@@ -3805,59 +3777,57 @@ function KoreaCaseDetail(props: {
           </div>
           <div className="row-actions">
             <button className="button secondary" onClick={() => props.runQuery(props.targetCase.id)} disabled={props.isBusy}>
-              <Activity size={16} /> {props.t("fastQuery")}
+              {props.t("fastQuery")}
             </button>
             <button className="button secondary" onClick={() => props.sendTestEmail(props.targetCase.id)} disabled={props.isBusy || props.history.length === 0}>
-              <Mail size={16} /> {props.t("koreaTestEmail")}
+              {props.t("koreaTestEmail")}
             </button>
             <button className="icon-button danger" onClick={props.onRequestDelete}>
               <Trash2 size={16} />
             </button>
           </div>
         </div>
+        <StatusHero
+          statusLabel={props.t("status")}
+          status={(
+            <span className={getStatusBadgeClass(props.targetCase.lastStatus, "metric-status")}>
+              {props.targetCase.lastStatus || props.t("noStatus")}
+            </span>
+          )}
+          tone={getStatusTone(props.targetCase.lastStatus) === "issued" ? "issued" : getStatusTone(props.targetCase.lastStatus) === "approved" ? "approved" : "default"}
+          meta={[
+            { label: props.t("lastCheckedAt"), value: formatTime(props.targetCase.lastCheckedAt, props.languageMode) },
+            { label: props.t("nextCheckAt"), value: formatTime(props.targetCase.nextCheckAt, props.languageMode) },
+          ]}
+        />
         <div className="stack">
           {props.targetCase.lastErrorMessage && (
             <div className="notice">
               <strong>{props.t("koreaLastError")}：</strong>{props.targetCase.lastErrorMessage}
             </div>
           )}
-          <div className="two-col metric-grid">
-            <Metric icon={<FileText size={14} />} label={`${props.t("passport")} / ${props.t("koreaEnglishName")}`} value={`${props.targetCase.passportNumber} / ${props.targetCase.englishName}`} />
-            <Metric icon={<Clock size={14} />} label={props.t("koreaBirthDate")} value={props.targetCase.birthDate} />
-          </div>
-          <div className="two-col metric-grid">
-            <Metric icon={<FileText size={14} />} label={props.t("koreaApplicationNo")} value={props.targetCase.lastApplicationNo || "-"} />
-            <Metric icon={<Clock size={14} />} label={props.t("koreaApplicationDate")} value={props.targetCase.lastApplicationDate || "-"} />
-          </div>
-          <div className="two-col metric-grid">
-            <Metric icon={<MapPin size={14} />} label={props.t("koreaEntryPurpose")} value={props.targetCase.lastEntryPurpose || "-"} />
-            <Metric icon={<Activity size={14} />} label={props.t("status")}>
-              <span className={getStatusBadgeClass(props.targetCase.lastStatus, "metric-status")}>
-                {props.targetCase.lastStatus || props.t("noStatus")}
-              </span>
-            </Metric>
-          </div>
+          <FieldSheet
+            fields={[
+              { label: `${props.t("passport")} / ${props.t("koreaEnglishName")}`, value: `${props.targetCase.passportNumber} / ${props.targetCase.englishName}`, mono: true },
+              { label: props.t("koreaBirthDate"), value: props.targetCase.birthDate, mono: true },
+              { label: props.t("koreaApplicationNo"), value: props.targetCase.lastApplicationNo || "-", mono: true },
+              { label: props.t("koreaApplicationDate"), value: props.targetCase.lastApplicationDate || "-", mono: true },
+              { label: props.t("koreaEntryPurpose"), value: props.targetCase.lastEntryPurpose || "-" },
+              { label: props.t("lastCheckMode"), value: formatTriggerType(props.targetCase.lastTriggerType, props.t) },
+              { label: props.t("emailPushSetting"), value: props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff") },
+            ]}
+          />
           {hasIssuedDetails && (
-            <>
-              <div className="section-kicker">{props.t("koreaIssuedDetails")}</div>
-              <div className="two-col metric-grid">
-                <Metric icon={<FileText size={14} />} label={props.t("koreaVisaType")} value={props.targetCase.lastVisaType || "-"} />
-                <Metric icon={<FileText size={14} />} label={props.t("koreaStayQualification")} value={props.targetCase.lastStayQualification || "-"} />
-              </div>
-              <div className="two-col metric-grid">
-                <Metric icon={<Clock size={14} />} label={props.t("koreaEntryExpiryDate")} value={props.targetCase.lastEntryExpiryDate || "-"} />
-                <Metric icon={<FileText size={14} />} label={props.t("koreaVisaCertificate")} value={props.targetCase.lastVisaCertificateAvailable ? props.t("koreaVisaCertificateAvailable") : "-"} />
-              </div>
-            </>
+            <FieldSheet
+              title={props.t("koreaIssuedDetails")}
+              fields={[
+                { label: props.t("koreaVisaType"), value: props.targetCase.lastVisaType || "-" },
+                { label: props.t("koreaStayQualification"), value: props.targetCase.lastStayQualification || "-" },
+                { label: props.t("koreaEntryExpiryDate"), value: props.targetCase.lastEntryExpiryDate || "-", mono: true },
+                { label: props.t("koreaVisaCertificate"), value: props.targetCase.lastVisaCertificateAvailable ? props.t("koreaVisaCertificateAvailable") : "-" },
+              ]}
+            />
           )}
-          <div className="two-col metric-grid">
-            <Metric icon={<Clock size={14} />} label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
-            <Metric icon={<Activity size={14} />} label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
-          </div>
-          <div className="two-col metric-grid">
-            <Metric icon={<Clock size={14} />} label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
-            <Metric icon={<Bell size={14} />} label={props.t("emailPushSetting")} value={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")} />
-          </div>
           <SettingsToggle
             label={props.t("emailPushSetting")}
             description={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")}
@@ -3875,7 +3845,6 @@ function KoreaCaseDetail(props: {
       <section className="panel">
         <div className="panel-title">
           <h2 className="subhead">{props.t("statusHistory")}</h2>
-          <History size={18} />
         </div>
         <div className="timeline">
           {sortedHistory.map((item) => {
@@ -4005,16 +3974,29 @@ function IrccCaseDetail(props: {
           </div>
           <div className="row-actions">
             <button className="button secondary" onClick={() => props.runQuery(props.targetCase.id)} disabled={props.isBusy}>
-              <Activity size={16} /> {props.t("fastQuery")}
+              {props.t("fastQuery")}
             </button>
             <button className="button secondary" onClick={() => props.sendTestEmail(props.targetCase.id)} disabled={props.isBusy || props.history.length === 0}>
-              <Mail size={16} /> {props.t("irccTestEmail")}
+              {props.t("irccTestEmail")}
             </button>
             <button className="icon-button danger" onClick={props.onRequestDelete}>
               <Trash2 size={16} />
             </button>
           </div>
         </div>
+        <StatusHero
+          statusLabel={props.t("status")}
+          status={(
+            <span className={getIrccToneBadgeClass(statusOverview?.tone, "metric-status")}>
+              {statusOverview ? formatIrccHeadline(statusOverview, props.languageMode) : props.t("noStatus")}
+            </span>
+          )}
+          tone={statusOverview?.tone === "approved" ? "approved" : statusOverview?.tone === "negative" ? "negative" : statusOverview?.tone === "pending" ? "pending" : statusOverview?.tone === "unknown" ? "unknown" : "default"}
+          meta={[
+            { label: props.t("lastCheckedAt"), value: formatTime(props.targetCase.lastCheckedAt, props.languageMode) },
+            { label: props.t("nextCheckAt"), value: formatTime(props.targetCase.nextCheckAt, props.languageMode) },
+          ]}
+        />
         <div className="stack">
           <div className="notice">{props.t("irccPortalIntro")}</div>
           {props.targetCase.lastErrorMessage && (
@@ -4022,22 +4004,16 @@ function IrccCaseDetail(props: {
               <strong>{props.t("irccLastError")}：</strong>{props.targetCase.lastErrorMessage}
             </div>
           )}
-          <div className="two-col metric-grid ircc-metric-grid">
-            <Metric icon={<FileText size={14} />} label={props.t("irccApplicationNumber")} value={props.targetCase.applicationNumber || "-"} />
-            <Metric icon={<FileText size={14} />} label={props.t("irccAppId")} value={props.targetCase.appId} />
-          </div>
-          <div className="two-col metric-grid ircc-metric-grid">
-            <Metric icon={<User size={14} />} label={props.t("irccPrincipalApplicant")} value={props.targetCase.principalApplicant || String(applicant.fullName || "-")} />
-            <Metric icon={<Mail size={14} />} label={props.t("irccPortalEmail")} value={props.targetCase.portalEmailMasked} />
-          </div>
-          <div className="two-col metric-grid ircc-metric-grid">
-            <Metric icon={<Mail size={14} />} label={props.t("notifyEmail")} value={props.targetCase.receiveEmail} />
-            <Metric icon={<Activity size={14} />} label={props.t("lastCheckMode")} value={formatTriggerType(props.targetCase.lastTriggerType, props.t)} />
-          </div>
-          <div className="two-col metric-grid ircc-metric-grid">
-            <Metric icon={<Clock size={14} />} label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
-            <Metric icon={<Clock size={14} />} label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
-          </div>
+          <FieldSheet
+            fields={[
+              { label: props.t("irccApplicationNumber"), value: props.targetCase.applicationNumber || "-", mono: true },
+              { label: props.t("irccAppId"), value: props.targetCase.appId, mono: true },
+              { label: props.t("irccPrincipalApplicant"), value: props.targetCase.principalApplicant || String(applicant.fullName || "-") },
+              { label: props.t("irccPortalEmail"), value: props.targetCase.portalEmailMasked },
+              { label: props.t("notifyEmail"), value: props.targetCase.receiveEmail },
+              { label: props.t("lastCheckMode"), value: formatTriggerType(props.targetCase.lastTriggerType, props.t) },
+            ]}
+          />
           <SettingsToggle
             label={props.t("emailPushSetting")}
             description={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")}
@@ -4056,20 +4032,17 @@ function IrccCaseDetail(props: {
       <section className="panel ircc-section">
         <div className="panel-title">
           <h2 className="subhead">{props.t("irccApplicantInfo")}</h2>
-          <UserRound size={18} />
         </div>
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.principalApplicant} value={String(applicant.fullName || props.targetCase.principalApplicant || "-")} />
-          <Metric label="UCI" value={String(applicant.uci || "-")} />
-        </div>
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.applicationNumber} value={String(applicant.appNumber || props.targetCase.applicationNumber || "-")} />
-          <Metric label={statusLabels.dateReceived} value={String(applicant.receivedDate || "-")} />
-        </div>
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.biometricsNumber} value={String(applicant.biometricNumber || "-")} />
-          <Metric label={statusLabels.biometricsExpiry} value={String(applicant.biometricExpiryDate || "-")} />
-        </div>
+        <FieldSheet
+          fields={[
+            { label: statusLabels.principalApplicant, value: String(applicant.fullName || props.targetCase.principalApplicant || "-") },
+            { label: "UCI", value: String(applicant.uci || "-"), mono: true },
+            { label: statusLabels.applicationNumber, value: String(applicant.appNumber || props.targetCase.applicationNumber || "-"), mono: true },
+            { label: statusLabels.dateReceived, value: String(applicant.receivedDate || "-"), mono: true },
+            { label: statusLabels.biometricsNumber, value: String(applicant.biometricNumber || "-"), mono: true },
+            { label: statusLabels.biometricsExpiry, value: String(applicant.biometricExpiryDate || "-"), mono: true },
+          ]}
+        />
       </section>
 
       <section className="panel">
@@ -4104,25 +4077,19 @@ function IrccCaseDetail(props: {
             )}
           </div>
         )}
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.eligibility} value={readIrccStatus(appStatus.eligibility, props.languageMode)} />
-          <Metric label={statusLabels.medical} value={readIrccStatus(appStatus.medical, props.languageMode)} />
-        </div>
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.additionalDocuments} value={readIrccStatus(appStatus.additionalDocuments, props.languageMode)} />
-          <Metric label={statusLabels.interview} value={readIrccStatus(appStatus.interviewOrAppointment, props.languageMode)} />
-        </div>
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.biometrics} value={readIrccStatus(appStatus.biometricInformation, props.languageMode)} />
-          <Metric label={statusLabels.backgroundCheck} value={readIrccStatus(appStatus.backgroundChecks, props.languageMode)} />
-        </div>
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.finalDecision} value={readIrccStatus(appStatus.finalDecision, props.languageMode)} />
-          <Metric label={statusLabels.homeStatus} value={formatIrccPlainValue(applicationInfo.appStatus, props.languageMode)} />
-        </div>
-        <div className="two-col metric-grid ircc-metric-grid">
-          <Metric label={statusLabels.homeGhostUpdate} value={applicationInfo.updatedTimestamp || applicationInfo.updatedDate ? formatTime(String(applicationInfo.updatedTimestamp || applicationInfo.updatedDate), props.languageMode) : "-"} />
-        </div>
+        <FieldSheet
+          fields={[
+            { label: statusLabels.eligibility, value: readIrccStatus(appStatus.eligibility, props.languageMode) },
+            { label: statusLabels.medical, value: readIrccStatus(appStatus.medical, props.languageMode) },
+            { label: statusLabels.additionalDocuments, value: readIrccStatus(appStatus.additionalDocuments, props.languageMode) },
+            { label: statusLabels.interview, value: readIrccStatus(appStatus.interviewOrAppointment, props.languageMode) },
+            { label: statusLabels.biometrics, value: readIrccStatus(appStatus.biometricInformation, props.languageMode) },
+            { label: statusLabels.backgroundCheck, value: readIrccStatus(appStatus.backgroundChecks, props.languageMode) },
+            { label: statusLabels.finalDecision, value: readIrccStatus(appStatus.finalDecision, props.languageMode) },
+            { label: statusLabels.homeStatus, value: formatIrccPlainValue(applicationInfo.appStatus, props.languageMode) },
+            { label: statusLabels.homeGhostUpdate, value: applicationInfo.updatedTimestamp || applicationInfo.updatedDate ? formatTime(String(applicationInfo.updatedTimestamp || applicationInfo.updatedDate), props.languageMode) : "-", mono: true },
+          ]}
+        />
         <p className="form-intro compact ircc-ghost-note">{props.t("irccGhostUpdate")}</p>
       </section>
 
@@ -4132,19 +4099,25 @@ function IrccCaseDetail(props: {
             <h2 className="subhead">{statusLabels.processingTitle}</h2>
             <span className="status-badge">{formatIrccBoolean(appStatus.processingTimeAvailable, props.languageMode)}</span>
           </div>
-          <div className="two-col metric-grid ircc-metric-grid">
-            {hasIrccValue(appStatus.processingTimeBarTitle) && <Metric label={statusLabels.processingTitle} value={formatIrccPlainValue(appStatus.processingTimeBarTitle, props.languageMode)} />}
-            {hasIrccValue(appStatus.processingTimeBarMessage) && <Metric label={statusLabels.processingMessage} value={formatIrccPlainValue(appStatus.processingTimeBarMessage, props.languageMode)} />}
-          </div>
-          <div className="two-col metric-grid ircc-metric-grid">
-            {hasIrccValue(appStatus.estimatedCompletionDate) && <Metric label={statusLabels.estimatedCompletionDate} value={formatIrccPlainValue(appStatus.estimatedCompletionDate, props.languageMode)} />}
-            {hasIrccValue(appStatus.estimatedRemainingProcessingTime) && <Metric label={statusLabels.remainingProcessingTime} value={formatIrccRemainingTime(appStatus, props.languageMode)} />}
-          </div>
-          {appStatus.processingTimeExceeded === true && (
-            <div className="two-col metric-grid ircc-metric-grid">
-              <Metric label={statusLabels.processingTimeExceeded} value={formatIrccBoolean(appStatus.processingTimeExceeded, props.languageMode)} />
-            </div>
-          )}
+          <FieldSheet
+            fields={[
+              ...(hasIrccValue(appStatus.processingTimeBarTitle)
+                ? [{ label: statusLabels.processingTitle, value: formatIrccPlainValue(appStatus.processingTimeBarTitle, props.languageMode) }]
+                : []),
+              ...(hasIrccValue(appStatus.processingTimeBarMessage)
+                ? [{ label: statusLabels.processingMessage, value: formatIrccPlainValue(appStatus.processingTimeBarMessage, props.languageMode) }]
+                : []),
+              ...(hasIrccValue(appStatus.estimatedCompletionDate)
+                ? [{ label: statusLabels.estimatedCompletionDate, value: formatIrccPlainValue(appStatus.estimatedCompletionDate, props.languageMode), mono: true }]
+                : []),
+              ...(hasIrccValue(appStatus.estimatedRemainingProcessingTime)
+                ? [{ label: statusLabels.remainingProcessingTime, value: formatIrccRemainingTime(appStatus, props.languageMode) }]
+                : []),
+              ...(appStatus.processingTimeExceeded === true
+                ? [{ label: statusLabels.processingTimeExceeded, value: formatIrccBoolean(appStatus.processingTimeExceeded, props.languageMode) }]
+                : []),
+            ]}
+          />
         </section>
       )}
 
@@ -4167,7 +4140,6 @@ function IrccCaseDetail(props: {
       <section className="panel">
         <div className="panel-title">
           <h2 className="subhead">{props.t("irccMessages")}</h2>
-          <Mail size={18} />
         </div>
         <div className="timeline">
           {sortedMessages.map((message, index) => {
@@ -4193,7 +4165,6 @@ function IrccCaseDetail(props: {
       <section className="panel">
         <div className="panel-title">
           <h2 className="subhead">{props.t("statusHistory")}</h2>
-          <History size={18} />
         </div>
         <div className="timeline">
           {props.history.map((record) => (
@@ -4258,18 +4229,26 @@ function TermsDialog(props: { t: (key: TranslationKey) => string; languageMode: 
   );
 }
 
-function SiteFooter(props: { t: (key: TranslationKey) => string }) {
+function SiteFooter(props: { t: (key: TranslationKey) => string; showSupport?: boolean }) {
   return (
     <footer className="site-footer">
-      <span>{props.t("nonprofitNotice")}</span>
-      <span>{props.t("contactEmail")}</span>
-      <a href="https://github.com/Mike-Zhuang/CEACStatusBot_Web" target="_blank" rel="noreferrer">
-        {props.t("sourceCode")}
-      </a>
-      {icpRecordNumber && (
-        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
-          {icpRecordNumber}
+      <div className="site-footer-links">
+        <span>{props.t("nonprofitNotice")}</span>
+        <span>{props.t("contactEmail")}</span>
+        <a href="https://github.com/Mike-Zhuang/CEACStatusBot_Web" target="_blank" rel="noreferrer">
+          {props.t("sourceCode")}
         </a>
+        {icpRecordNumber && (
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+            {icpRecordNumber}
+          </a>
+        )}
+      </div>
+      {props.showSupport && (
+        <div className="site-footer-support">
+          <SupportPanel t={props.t} compact />
+          <PublicNoticePanel t={props.t} />
+        </div>
       )}
     </footer>
   );
@@ -4297,18 +4276,6 @@ function LanguageButton(props: { languageMode: LanguageMode; setLanguageMode: (m
     >
       {props.languageMode === "zh" ? "EN" : "中"}
     </button>
-  );
-}
-
-function Metric(props: { label: string; value?: string; children?: React.ReactNode; icon?: React.ReactNode }) {
-  return (
-    <div className="metric hover-card">
-      <div className="metric-header">
-        {props.icon && <div className="metric-icon">{props.icon}</div>}
-        <div className="caption">{props.label}</div>
-      </div>
-      <div className="body-sm">{props.children ?? props.value}</div>
-    </div>
   );
 }
 
@@ -4416,21 +4383,19 @@ function PassportSlotMonitorPanel(props: {
 
       {props.monitor ? (
         <div className="stack">
-          <div className="two-col metric-grid">
-            <Metric label={props.t("passportSlotConfigured")} value={props.monitor.identifierMasked} />
-            <Metric label={props.t("passportSlotCurrentStatus")} value={formatPassportSlotStatus(props.monitor.lastResult, props.t)} />
-          </div>
-          <div className="two-col metric-grid">
-            <Metric label={props.t("passportSlotLastCount")} value={String(props.monitor.lastSlotCount)} />
-            <Metric label={props.t("lastCheckedAt")} value={formatTime(props.monitor.lastCheckedAt, props.languageMode)} />
-          </div>
-          <div className="two-col metric-grid">
-            <Metric label={props.t("nextCheckAt")} value={formatTime(props.monitor.nextCheckAt, props.languageMode)} />
-          </div>
-          <Metric label={props.t("changeContent")} value={summarizePassportSlotResult(props.monitor.lastResult, props.languageMode)} />
-          {props.monitor.lastErrorMessage && (
-            <Metric label={props.t("passportSlotLastError")} value={props.monitor.lastErrorMessage} />
-          )}
+          <FieldSheet
+            fields={[
+              { label: props.t("passportSlotConfigured"), value: props.monitor.identifierMasked, mono: true },
+              { label: props.t("passportSlotCurrentStatus"), value: formatPassportSlotStatus(props.monitor.lastResult, props.t) },
+              { label: props.t("passportSlotLastCount"), value: String(props.monitor.lastSlotCount), mono: true },
+              { label: props.t("lastCheckedAt"), value: formatTime(props.monitor.lastCheckedAt, props.languageMode), mono: true },
+              { label: props.t("nextCheckAt"), value: formatTime(props.monitor.nextCheckAt, props.languageMode), mono: true },
+              { label: props.t("changeContent"), value: summarizePassportSlotResult(props.monitor.lastResult, props.languageMode) },
+              ...(props.monitor.lastErrorMessage
+                ? [{ label: props.t("passportSlotLastError"), value: props.monitor.lastErrorMessage }]
+                : []),
+            ]}
+          />
           <SettingsToggle
             label={props.t("autoMonitor")}
             description={props.monitor.isEnabled ? props.t("passportSlotEnabled") : props.t("passportSlotDisabled")}
@@ -4452,7 +4417,7 @@ function PassportSlotMonitorPanel(props: {
               onClick={() => props.runQuery(props.selectedCase.id)}
               disabled={props.isBusy}
             >
-              <Activity size={16} /> {props.t("passportSlotManualQuery")}
+              {props.t("passportSlotManualQuery")}
             </button>
             <button
               type="button"
@@ -4460,7 +4425,7 @@ function PassportSlotMonitorPanel(props: {
               onClick={() => props.sendTestEmail(props.selectedCase.id)}
               disabled={props.isBusy}
             >
-              <Mail size={16} /> {props.t("passportSlotTestEmail")}
+              {props.t("passportSlotTestEmail")}
             </button>
             {shouldShowBookedStop && (
               <button
@@ -4469,7 +4434,7 @@ function PassportSlotMonitorPanel(props: {
                 onClick={() => props.confirmBooked(props.selectedCase, props.monitor!)}
                 disabled={props.isBusy}
               >
-                <CheckCircle2 size={16} /> {props.t("passportSlotBookedStop")}
+                {props.t("passportSlotBookedStop")}
               </button>
             )}
           </div>
@@ -4518,12 +4483,15 @@ function ProfilePanel(props: {
         <h2 className="headline">{props.t("personalInfo")}</h2>
       </div>
       <div className="account-tier-card">
-        <Metric label={props.t("accountTierCurrent")} value={formatAccountTier(props.user.account_tier, props.t)} />
+        <FieldSheet
+          fields={[
+            { label: props.t("accountTierCurrent"), value: formatAccountTier(props.user.account_tier, props.t) },
+          ]}
+        />
         <p className="form-intro compact">{props.t("accountTierLimits")}</p>
       </div>
       <div className="terms-profile-card">
         <div className="support-title">
-          <Shield size={16} />
           <span>{props.t("termsTitle")}</span>
         </div>
         <p>{props.t("profileTermsIntro")}</p>
@@ -4578,6 +4546,7 @@ function ProfilePanel(props: {
         </div>
       </form>
       {isTermsDialogOpen && <TermsDialog t={props.t} languageMode={props.languageMode} onClose={() => setIsTermsDialogOpen(false)} />}
+      <SupportPanel t={props.t} />
     </section>
   );
 }
@@ -4761,7 +4730,7 @@ function AdminPanel(props: {
               <div key={adminUser.id} className={`admin-user-card ${isCollapsed ? "collapsed" : ""}`}>
                 <button type="button" className="admin-user-header" onClick={() => toggleAdminUser(adminUser.id)}>
                   <span className="admin-user-title">
-                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                    <ChevronRight size={16} className={`collapse-chevron ${isCollapsed ? "" : "open"}`} />
                     <span>
                       <span className="case-name">{adminUser.email}</span>
                       <span className="case-meta">
@@ -4810,11 +4779,13 @@ function AdminPanel(props: {
                       </button>
                     </div>
                     <p className="form-intro compact">{props.t("workerPriorityHint")}</p>
-                    <div className="admin-user-metrics">
-                      <Metric label={props.t("lastQuery")} value={formatTime(adminUser.last_checked_at, props.languageMode)} />
-                      <Metric label={props.t("createdAt")} value={formatTime(adminUser.created_at, props.languageMode)} />
-                      <Metric label={props.t("updatedAt")} value={formatTime(adminUser.updated_at, props.languageMode)} />
-                    </div>
+                    <FieldSheet
+                      fields={[
+                        { label: props.t("lastQuery"), value: formatTime(adminUser.last_checked_at, props.languageMode), mono: true },
+                        { label: props.t("createdAt"), value: formatTime(adminUser.created_at, props.languageMode), mono: true },
+                        { label: props.t("updatedAt"), value: formatTime(adminUser.updated_at, props.languageMode), mono: true },
+                      ]}
+                    />
                     <div className="case-list compact">
                       {ownedCases.map((item) => {
                         const key = item.adminCaseKey ?? `${item.profileType ?? "ceac"}-${item.id}`;
@@ -4991,7 +4962,7 @@ function AdminPanel(props: {
 
         <button type="button" className="subsection-toggle spaced" onClick={toggleFinishedQueue}>
           <span className="log-group-title">
-            {isFinishedQueueCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+            <ChevronRight size={16} className={`collapse-chevron ${isFinishedQueueCollapsed ? "" : "open"}`} />
             <span>{props.t("workerFinishedQueue")}</span>
           </span>
           <span className="status-badge">{props.finishedQueryJobs.length} {props.t("logItems")}</span>
@@ -5048,7 +5019,7 @@ function AdminPanel(props: {
               <section key={email} className={`log-group ${isCollapsed ? "collapsed" : ""}`}>
                 <button type="button" className="log-group-header" onClick={() => toggleLogUser(email)}>
                   <span className="log-group-title">
-                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                    <ChevronRight size={16} className={`collapse-chevron ${isCollapsed ? "" : "open"}`} />
                     <span>{email}</span>
                   </span>
                   <span className="status-badge">{runs.length} {props.t("logItems")}</span>
@@ -5106,24 +5077,27 @@ function AdminPanel(props: {
                               {run.success ? props.t("success") : props.t("error")}
                             </span>
                           </div>
-                          <div className="log-card-grid">
-                            <Metric label={props.t("executor")} value={run.user_email} />
-                            <Metric label={props.t("profile")} value={run.display_name} />
-                            <Metric label={props.t("applicationId")} value={run.application_num} />
-                            <Metric label={props.t("lastCheckMode")} value={formatTriggerType(run.trigger_type, props.t)} />
-                            <Metric label={props.t("duration")} value={`${run.duration_ms}ms`} />
-                            <Metric label={props.t("changeContent")}>
-                              {run.profile_type === "ircc" && run.status ? (
-                                <span className="admin-ircc-summary">{translateIrccChangeSummary(run.status, props.languageMode)}</span>
-                              ) : run.profile_type === "passport_slot" && run.status ? (
-                                <span className="admin-ircc-summary">{formatInlineTimes(run.status, props.languageMode)}</span>
-                              ) : run.status ? (
-                                <span className={getStatusBadgeClass(run.status, "metric-status")}>{run.status}</span>
-                              ) : (
-                                run.error_message || props.t("noStatusChange")
-                              )}
-                            </Metric>
-                          </div>
+                          <FieldSheet
+                            fields={[
+                              { label: props.t("executor"), value: run.user_email },
+                              { label: props.t("profile"), value: run.display_name },
+                              { label: props.t("applicationId"), value: run.application_num, mono: true },
+                              { label: props.t("lastCheckMode"), value: formatTriggerType(run.trigger_type, props.t) },
+                              { label: props.t("duration"), value: `${run.duration_ms}ms`, mono: true },
+                              {
+                                label: props.t("changeContent"),
+                                children: run.profile_type === "ircc" && run.status ? (
+                                  <span className="admin-ircc-summary">{translateIrccChangeSummary(run.status, props.languageMode)}</span>
+                                ) : run.profile_type === "passport_slot" && run.status ? (
+                                  <span className="admin-ircc-summary">{formatInlineTimes(run.status, props.languageMode)}</span>
+                                ) : run.status ? (
+                                  <span className={getStatusBadgeClass(run.status, "metric-status")}>{run.status}</span>
+                                ) : (
+                                  run.error_message || props.t("noStatusChange")
+                                ),
+                              },
+                            ]}
+                          />
                         </div>
                       ))}
                     </div>
@@ -5148,7 +5122,7 @@ function AdminPanel(props: {
               <section key={recipient} className={`log-group ${isCollapsed ? "collapsed" : ""}`}>
                 <button type="button" className="log-group-header" onClick={() => toggleEmailRecipient(recipient)}>
                   <span className="log-group-title">
-                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                    <ChevronRight size={16} className={`collapse-chevron ${isCollapsed ? "" : "open"}`} />
                     <span>{recipient}</span>
                   </span>
                   <span className="status-badge">{deliveries.length} {props.t("logItems")}</span>
@@ -5161,13 +5135,15 @@ function AdminPanel(props: {
                           <span>{formatTime(delivery.created_at, props.languageMode)}</span>
                           <span className="status-badge">{delivery.email_type}</span>
                         </div>
-                        <div className="log-card-grid">
-                          <Metric label={props.t("recipient")} value={delivery.recipient} />
-                          <Metric label={props.t("executor")} value={delivery.user_email} />
-                          <Metric label={props.t("profile")} value={delivery.display_name || "-"} />
-                          <Metric label={props.t("emailType")} value={delivery.email_type} />
-                          <Metric label={props.t("subject")} value={delivery.subject} />
-                        </div>
+                        <FieldSheet
+                          fields={[
+                            { label: props.t("recipient"), value: delivery.recipient },
+                            { label: props.t("executor"), value: delivery.user_email },
+                            { label: props.t("profile"), value: delivery.display_name || "-" },
+                            { label: props.t("emailType"), value: delivery.email_type, mono: true },
+                            { label: props.t("subject"), value: delivery.subject },
+                          ]}
+                        />
                         <div className="email-body-preview">
                           <span className="caption">{props.t("body")}</span>
                           <pre>{delivery.body || props.t("emailDeliveryEmptyBody")}</pre>
@@ -5195,7 +5171,7 @@ function AdminPanel(props: {
               <section key={group.key} className={`log-group ${isCollapsed ? "collapsed" : ""}`}>
                 <button type="button" className="log-group-header" onClick={() => toggleSecurityActor(group.key)}>
                   <span className="log-group-title">
-                    {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                    <ChevronRight size={16} className={`collapse-chevron ${isCollapsed ? "" : "open"}`} />
                     <span>{group.label}</span>
                   </span>
                   <span className="status-badge">{group.events.length} {props.t("logItems")}</span>
@@ -5210,14 +5186,16 @@ function AdminPanel(props: {
                             {event.severity}
                           </span>
                         </div>
-                        <div className="log-card-grid">
-                          <Metric label={props.t("securityEventType")} value={event.event_type} />
-                          <Metric label={props.t("securityActor")} value={event.actor_summary || event.user_email || props.t("triggerUnknown")} />
-                          <Metric label={props.t("email")} value={event.user_email || props.t("triggerUnknown")} />
-                          <Metric label={props.t("securitySeverity")} value={event.severity} />
-                          <Metric label="Path" value={event.path || "-"} />
-                          <Metric label={props.t("changeContent")} value={event.detail || "-"} />
-                        </div>
+                        <FieldSheet
+                          fields={[
+                            { label: props.t("securityEventType"), value: event.event_type, mono: true },
+                            { label: props.t("securityActor"), value: event.actor_summary || event.user_email || props.t("triggerUnknown") },
+                            { label: props.t("email"), value: event.user_email || props.t("triggerUnknown") },
+                            { label: props.t("securitySeverity"), value: event.severity },
+                            { label: "Path", value: event.path || "-", mono: true },
+                            { label: props.t("changeContent"), value: event.detail || "-" },
+                          ]}
+                        />
                       </div>
                     ))}
                   </div>
@@ -5252,29 +5230,15 @@ function NewProfileForm(props: {
 }) {
   return (
     <div className="stack">
-      <div className="country-picker" role="radiogroup" aria-label={props.t("statusMonitoring")}>
-        <button type="button" role="radio" aria-checked={props.country === "us"} className={`country-option ${props.country === "us" ? "selected" : ""}`} onClick={() => props.setCountry("us")}>
-          <div className="country-option-icon"><Landmark className="icon" size={20} /></div>
-          <div className="country-option-copy">
-            <span className="country-option-label">{props.t("countryUnitedStates")}</span>
-            <span className="country-option-hint">{props.t("countryUnitedStatesHint")}</span>
-          </div>
-        </button>
-        <button type="button" role="radio" aria-checked={props.country === "ca"} className={`country-option ${props.country === "ca" ? "selected" : ""}`} onClick={() => props.setCountry("ca")}>
-          <div className="country-option-icon"><TreePine className="icon" size={20} /></div>
-          <div className="country-option-copy">
-            <span className="country-option-label">{props.t("countryCanada")}</span>
-            <span className="country-option-hint">{props.t("countryCanadaHint")}</span>
-          </div>
-        </button>
-        <button type="button" role="radio" aria-checked={props.country === "kr"} className={`country-option ${props.country === "kr" ? "selected" : ""}`} onClick={() => props.setCountry("kr")}>
-          <div className="country-option-icon"><LucideMap className="icon" size={20} /></div>
-          <div className="country-option-copy">
-            <span className="country-option-label">{props.t("countryKorea")}</span>
-            <span className="country-option-hint">{props.t("countryKoreaHint")}</span>
-          </div>
-        </button>
-      </div>
+      <CountrySegment
+        country={props.country}
+        setCountry={props.setCountry}
+        options={[
+          { id: "us", code: "US", label: props.t("countryUnitedStates"), hint: props.t("countryUnitedStatesHint") },
+          { id: "ca", code: "CA", label: props.t("countryCanada"), hint: props.t("countryCanadaHint") },
+          { id: "kr", code: "KR", label: props.t("countryKorea"), hint: props.t("countryKoreaHint") },
+        ]}
+      />
       {props.country === "us" ? (
         <CaseFormView caseForm={props.caseForm} setCaseForm={props.setCaseForm} saveCase={props.saveCase} isBusy={props.isBusy} t={props.t} languageMode={props.languageMode} />
       ) : props.country === "ca" ? (
@@ -5334,7 +5298,7 @@ function IrccCaseFormView(props: {
           </label>
         </div>
         <button type="button" className="button secondary" onClick={() => props.discoverApplications()} disabled={props.isBusy || !form.portalEmail || !form.portalPassword}>
-          <Activity size={16} /> {props.t("irccDiscoverApplications")}
+          {props.t("irccDiscoverApplications")}
         </button>
         {props.applications.length > 0 && (
           <label>
