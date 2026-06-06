@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowDown,
   ArrowUp,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   HeartHandshake,
   Landmark,
@@ -25,11 +26,14 @@ import {
   FileText,
   Clock,
   Bell,
-  FolderOpen,
   Server,
   CloudLightning,
 } from "lucide-react";
 import { ceacLocations } from "./locations";
+import { ConfirmDialog } from "./components/confirm-dialog";
+import { EmptyState } from "./components/empty-state";
+import { SettingsToggle } from "./components/settings-toggle";
+import { useToast } from "./components/use-toast";
 
 type ThemeMode = "dark" | "light";
 type LanguageMode = "zh" | "en";
@@ -730,6 +734,18 @@ const translations = {
     casesOwned: "Profiles",
     changeContent: "Change",
     confirmDelete: "Delete this profile?",
+    confirmDeleteTitle: "Delete profile",
+    confirmDeleteAction: "Delete profile",
+    cancel: "Cancel",
+    backToList: "Back to profiles",
+    currentPassword: "Current password",
+    newPassword: "New password",
+    confirmNewPassword: "Confirm new password",
+    passwordMismatch: "New passwords do not match.",
+    countryUnitedStatesHint: "CEAC status checks and optional GTS passport slot monitoring.",
+    countryCanadaHint: "IRCC Portal status checks with encrypted credential storage.",
+    countryKoreaHint: "Korea visa portal status checks with passport and birth date.",
+    supportDisclaimerSummary: "Read support disclaimer",
     createdAt: "Created",
     currentLogin: "Signed in as",
     dashboard: "My Profiles",
@@ -1005,6 +1021,18 @@ const translations = {
     casesOwned: "档案数量",
     changeContent: "变更内容",
     confirmDelete: "确认删除此档案？",
+    confirmDeleteTitle: "删除档案",
+    confirmDeleteAction: "删除档案",
+    cancel: "取消",
+    backToList: "返回档案列表",
+    currentPassword: "当前密码",
+    newPassword: "新密码",
+    confirmNewPassword: "确认新密码",
+    passwordMismatch: "两次输入的新密码不一致。",
+    countryUnitedStatesHint: "CEAC 状态查询，以及可选的 GTS 护照预约 slot 监控。",
+    countryCanadaHint: "IRCC Portal 状态查询，凭证加密存储。",
+    countryKoreaHint: "韩国签证门户状态查询，需护照号与出生日期。",
+    supportDisclaimerSummary: "查看赞赏说明",
     createdAt: "创建时间",
     currentLogin: "当前登录",
     dashboard: "我的档案",
@@ -1499,7 +1527,10 @@ function getRememberedCredentials(): { email: string; password: string; remember
   };
 }
 
+type PendingDeleteTarget = { kind: "ceac" | "ircc" | "korea"; id: number };
+
 export function App() {
+  const { pushToast } = useToast();
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
   const [languageMode, setLanguageMode] = useState<LanguageMode>(getInitialLanguage);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -1558,15 +1589,75 @@ export function App() {
   const [isTermsDialogOpen, setIsTermsDialogOpen] = useState(false);
   const [resetCode, setResetCode] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
-  const [message, setMessage] = useState<{ scope: MessageScope; text: string } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDeleteTarget | null>(null);
+  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 1024px)").matches);
+  const [mobileListMode, setMobileListMode] = useState(true);
+  const detailPanelRef = useRef<HTMLDivElement | null>(null);
   const t = (key: TranslationKey) => translations[languageMode][key];
-  const activeScope: MessageScope = user ? viewMode : "auth";
-  const activeMessage = message?.scope === activeScope ? message.text : "";
 
-  function showMessage(text: string, scope: MessageScope = activeScope) {
-    setMessage(text ? { scope, text } : null);
+  function showMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    const lower = trimmed.toLowerCase();
+    const tone = lower.includes("fail") || lower.includes("error") || trimmed.includes("失败") || trimmed.includes("错误")
+      ? "error"
+      : lower.includes("saved") || lower.includes("sent") || lower.includes("created") || trimmed.includes("已") || trimmed.includes("成功")
+        ? "success"
+        : "default";
+    pushToast(trimmed, tone);
   }
+
+  function openMobileDetail() {
+    if (!isNarrow) {
+      return;
+    }
+    setMobileListMode(false);
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => {
+      detailPanelRef.current?.scrollIntoView({
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        block: "start",
+      });
+    });
+  }
+
+  function backToProfileList() {
+    setMobileListMode(true);
+    setIsCreatingProfile(false);
+    setSelectedCaseId(null);
+    setSelectedIrccCaseId(null);
+    setSelectedKoreaCaseId(null);
+  }
+
+  function requestDeleteProfile(kind: PendingDeleteTarget["kind"], id: number) {
+    setPendingDelete({ kind, id });
+  }
+
+  async function confirmPendingDelete() {
+    if (!pendingDelete) {
+      return;
+    }
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (target.kind === "ceac") {
+      await removeCase(target.id);
+    } else if (target.kind === "ircc") {
+      await removeIrccCase(target.id);
+    } else {
+      await removeKoreaCase(target.id);
+    }
+  }
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 1024px)");
+    const updateLayout = () => setIsNarrow(mediaQuery.matches);
+    updateLayout();
+    mediaQuery.addEventListener("change", updateLayout);
+    return () => mediaQuery.removeEventListener("change", updateLayout);
+  }, []);
 
   async function syncBrowserTimezone(nextUser: User) {
     const timezone = getBrowserTimezone();
@@ -1624,7 +1715,7 @@ export function App() {
       setHistory([]);
       setIrccHistory([]);
       setKoreaHistory([]);
-      showMessage(detail || (languageMode === "zh" ? "登录已超时，请重新登录。" : "Session expired. Please sign in again."), "auth");
+      showMessage(detail || (languageMode === "zh" ? "登录已超时，请重新登录。" : "Session expired. Please sign in again."));
     };
     window.addEventListener("ceac-session-expired", handleSessionExpired);
     return () => window.removeEventListener("ceac-session-expired", handleSessionExpired);
@@ -1964,7 +2055,7 @@ export function App() {
     setIsBusy(true);
     showMessage("");
     if (profileForm.newPassword && profileForm.newPassword !== profileForm.confirmPassword) {
-      showMessage(languageMode === "zh" ? "两次输入的新密码不一致。" : "New passwords do not match.");
+      showMessage(t("passwordMismatch"));
       setIsBusy(false);
       return;
     }
@@ -2808,7 +2899,7 @@ export function App() {
             )}
             {authMode === "forgot" && (
               <label>
-                {languageMode === "zh" ? "确认新密码" : "Confirm new password"}
+                {t("confirmNewPassword")}
                 <input
                   value={resetConfirmPassword}
                   onChange={(event) => setResetConfirmPassword(event.target.value)}
@@ -2819,7 +2910,7 @@ export function App() {
                 />
               </label>
             )}
-            <button className="button primary" disabled={isBusy}>
+            <button className={`button primary ${isBusy ? "busy" : ""}`} disabled={isBusy}>
               {authMode === "login" ? t("loginAction") : authMode === "register" ? t("registerAction") : t("resetAction")}
             </button>
             {authMode === "forgot" && (
@@ -2827,7 +2918,6 @@ export function App() {
                 {t("login")}
               </button>
             )}
-            {activeMessage && <p className="notice">{activeMessage}</p>}
           </form>
         </section>
         <PublicNoticePanel t={t} />
@@ -2879,21 +2969,33 @@ export function App() {
       <section className="workspace" id="main-content">
         <header className="page-header">
           <div>
-            <p className="eyebrow eyebrow-accent">{t("currentLogin")}: {user.email}</p>
+            <p className="meta-line">{t("currentLogin")}: {user.email}</p>
             <h1 className="headline">
               {viewMode === "admin" ? t("adminTitle") : viewMode === "profile" ? t("personalInfo") : t("statusMonitoring")}
             </h1>
           </div>
-          {activeMessage && <p className="notice">{activeMessage}</p>}
         </header>
 
         {viewMode === "dashboard" ? (
-          <div className="dashboard-layout">
-            <div className="stack">
+          <div className={`dashboard-layout ${isNarrow ? (mobileListMode ? "mobile-list-mode" : "mobile-detail-mode") : ""}`}>
+            <div className="stack dashboard-sidebar">
               <section className="panel">
                 <div className="panel-title">
                   <h2 className="headline">{t("caseList")}</h2>
-                  <button className="button secondary" title={t("caseName")} onClick={() => { setIsCreatingProfile(true); setSelectedCaseId(null); setSelectedIrccCaseId(null); setSelectedKoreaCaseId(null); setCaseForm(createEmptyCaseForm(user.email)); setIrccCaseForm(createEmptyIrccCaseForm(user.email)); setKoreaCaseForm(createEmptyKoreaCaseForm(user.email)); }}>
+                  <button
+                    className="button secondary"
+                    title={t("caseName")}
+                    onClick={() => {
+                      setIsCreatingProfile(true);
+                      setSelectedCaseId(null);
+                      setSelectedIrccCaseId(null);
+                      setSelectedKoreaCaseId(null);
+                      setCaseForm(createEmptyCaseForm(user.email));
+                      setIrccCaseForm(createEmptyIrccCaseForm(user.email));
+                      setKoreaCaseForm(createEmptyKoreaCaseForm(user.email));
+                      openMobileDetail();
+                    }}
+                  >
                     <Plus size={16} /> {t("newProfile")}
                   </button>
                 </div>
@@ -2945,6 +3047,7 @@ export function App() {
                             setSelectedKoreaCaseId(null);
                             setSelectedIrccCaseId(item.id);
                           }
+                          openMobileDetail();
                         }}
                       >
                         <div className="case-row-icon">
@@ -2990,10 +3093,7 @@ export function App() {
                     );
                   })}
                   {orderedProfiles.length === 0 && (
-                    <div className="empty-state">
-                      <div className="empty-state-icon"><FolderOpen size={24} /></div>
-                      <h3 className="headline">{t("noCases")}</h3>
-                    </div>
+                    <EmptyState title={t("noCases")} compact />
                   )}
                 </div>
               </section>
@@ -3001,14 +3101,15 @@ export function App() {
               <PublicNoticePanel t={t} />
             </div>
 
-            <div className="stack">
+            <div className="stack dashboard-detail" ref={detailPanelRef}>
               {selectedKoreaCase ? (
                 <KoreaCaseDetail
                   targetCase={selectedKoreaCase}
                   history={koreaHistory}
                   runQuery={runKoreaTest}
                   sendTestEmail={sendKoreaTestEmail}
-                  removeCase={removeKoreaCase}
+                  onRequestDelete={() => requestDeleteProfile("korea", selectedKoreaCase.id)}
+                  onBackToList={backToProfileList}
                   toggleEmailPush={toggleKoreaEmailPush}
                   stopAutomaticQuery={stopKoreaAutomaticQuery}
                   isBusy={isBusy}
@@ -3021,7 +3122,8 @@ export function App() {
                   history={irccHistory}
                   runQuery={runIrccTest}
                   sendTestEmail={sendIrccTestEmail}
-                  removeCase={removeIrccCase}
+                  onRequestDelete={() => requestDeleteProfile("ircc", selectedIrccCase.id)}
+                  onBackToList={backToProfileList}
                   toggleEmailPush={toggleIrccEmailPush}
                   toggleAutomaticQuery={toggleIrccAutomaticQuery}
                   isBusy={isBusy}
@@ -3032,6 +3134,9 @@ export function App() {
                 <section className="panel">
                   <div className="panel-title">
                     <div>
+                      <button type="button" className="button tertiary mobile-back-button" onClick={backToProfileList}>
+                        <ChevronLeft size={16} /> {t("backToList")}
+                      </button>
                       <h2 className="headline">{t("statusMonitoring")}</h2>
                       <p className="form-intro">{t("officialIntro")}</p>
                     </div>
@@ -3059,7 +3164,12 @@ export function App() {
                 <>
                   <section className="panel">
                     <div className="panel-title">
-                      <h2 className="headline">{selectedCase.displayName}</h2>
+                      <div>
+                        <button type="button" className="button tertiary mobile-back-button" onClick={backToProfileList}>
+                          <ChevronLeft size={16} /> {t("backToList")}
+                        </button>
+                        <h2 className="headline">{selectedCase.displayName}</h2>
+                      </div>
                       <div className="row-actions">
                         <button className="button secondary" onClick={() => runTest(selectedCase.id)} disabled={isBusy}>
                           <Activity size={16} /> {t("fastQuery")}
@@ -3067,7 +3177,7 @@ export function App() {
                         <button className="button secondary" onClick={() => sendTestEmail(selectedCase.id)} disabled={isBusy || history.length === 0}>
                           <Mail size={16} /> {t("testEmail")}
                         </button>
-                        <button className="icon-button danger" onClick={() => { if (confirm(t("confirmDelete"))) void removeCase(selectedCase.id); }}>
+                        <button className="icon-button danger" onClick={() => requestDeleteProfile("ceac", selectedCase.id)}>
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -3115,20 +3225,13 @@ export function App() {
                         <Metric icon={<Clock size={14} />} label={t("nextCheckAt")} value={formatTime(selectedCase.nextCheckAt, languageMode)} />
                         <Metric icon={<Bell size={14} />} label={t("emailPushSetting")} value={selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff")} />
                       </div>
-                      <div className="settings-row">
-                        <label className="checkbox">
-                          <input
-                            type="checkbox"
-                            checked={selectedCase.emailNotificationsEnabled}
-                            onChange={() => toggleEmailPush(selectedCase)}
-                            disabled={isBusy}
-                          />
-                          <span className="body-sm">{t("emailPushSetting")}</span>
-                        </label>
-                        <span className={`status-badge ${selectedCase.emailNotificationsEnabled ? "success" : ""}`}>
-                          {selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff")}
-                        </span>
-                      </div>
+                      <SettingsToggle
+                        label={t("emailPushSetting")}
+                        description={selectedCase.emailNotificationsEnabled ? t("emailPushOn") : t("emailPushOff")}
+                        checked={selectedCase.emailNotificationsEnabled}
+                        onChange={() => toggleEmailPush(selectedCase)}
+                        disabled={isBusy}
+                      />
                     </div>
                   </section>
 
@@ -3165,10 +3268,7 @@ export function App() {
                         </div>
                       ))}
                       {history.length === 0 && (
-                        <div className="empty-state">
-                          <div className="empty-state-icon"><History size={24} /></div>
-                          <p>{t("noHistory")}</p>
-                        </div>
+                        <EmptyState title={t("noHistory")} compact />
                       )}
                     </div>
                   </section>
@@ -3212,6 +3312,17 @@ export function App() {
         )}
       </section>
       <SiteFooter t={t} />
+      {pendingDelete && (
+        <ConfirmDialog
+          title={t("confirmDeleteTitle")}
+          message={t("confirmDelete")}
+          confirmLabel={t("confirmDeleteAction")}
+          cancelLabel={t("cancel")}
+          onConfirm={() => void confirmPendingDelete()}
+          onCancel={() => setPendingDelete(null)}
+          isBusy={isBusy}
+        />
+      )}
     </main>
   );
 }
@@ -3219,15 +3330,20 @@ export function App() {
 function SupportPanel(props: { t: (key: TranslationKey) => string; compact?: boolean }) {
   return (
     <section className={`support-card ${props.compact ? "compact" : ""}`}>
-      <div className="support-copy">
-        <div className="support-title">
-          <HeartHandshake size={16} />
-          <span>{props.t("supportTitle")}</span>
-        </div>
-        <p>{props.t("supportBody")}</p>
-        <p>{props.t("supportPremium")}</p>
-        <p className="support-disclaimer">{props.t("supportDisclaimer")}</p>
+      <div className="support-card-layout">
         <img src="/support/buy-me-a-coffee.jpg" alt={props.t("supportTitle")} />
+        <div className="support-copy">
+          <div className="support-title">
+            <HeartHandshake size={16} />
+            <span>{props.t("supportTitle")}</span>
+          </div>
+          <p>{props.t("supportBody")}</p>
+          <p>{props.t("supportPremium")}</p>
+          <details className="support-disclosure">
+            <summary>{props.t("supportDisclaimerSummary")}</summary>
+            <p>{props.t("supportDisclaimer")}</p>
+          </details>
+        </div>
       </div>
     </section>
   );
@@ -3654,7 +3770,8 @@ function KoreaCaseDetail(props: {
   history: KoreaHistoryItem[];
   runQuery: (caseId: number) => Promise<void>;
   sendTestEmail: (caseId: number) => Promise<void>;
-  removeCase: (caseId: number) => Promise<void>;
+  onRequestDelete: () => void;
+  onBackToList: () => void;
   toggleEmailPush: (targetCase: KoreaCase) => Promise<void>;
   stopAutomaticQuery: (targetCase: KoreaCase) => Promise<void>;
   isBusy: boolean;
@@ -3680,6 +3797,9 @@ function KoreaCaseDetail(props: {
       <section className="panel">
         <div className="panel-title">
           <div>
+            <button type="button" className="button tertiary mobile-back-button" onClick={props.onBackToList}>
+              <ChevronLeft size={16} /> {props.t("backToList")}
+            </button>
             <h2 className="headline">{props.targetCase.displayName}</h2>
             <p className="form-intro compact">{props.t("countryKorea")} · {props.t("koreaVisaTitle")} · {props.t("irccAlphaLabel")}</p>
           </div>
@@ -3690,7 +3810,7 @@ function KoreaCaseDetail(props: {
             <button className="button secondary" onClick={() => props.sendTestEmail(props.targetCase.id)} disabled={props.isBusy || props.history.length === 0}>
               <Mail size={16} /> {props.t("koreaTestEmail")}
             </button>
-            <button className="icon-button danger" onClick={() => { if (confirm(props.t("confirmDelete"))) void props.removeCase(props.targetCase.id); }}>
+            <button className="icon-button danger" onClick={props.onRequestDelete}>
               <Trash2 size={16} />
             </button>
           </div>
@@ -3738,20 +3858,18 @@ function KoreaCaseDetail(props: {
             <Metric icon={<Clock size={14} />} label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
             <Metric icon={<Bell size={14} />} label={props.t("emailPushSetting")} value={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")} />
           </div>
-          <div className="settings-row">
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={props.targetCase.emailNotificationsEnabled}
-                onChange={() => props.toggleEmailPush(props.targetCase)}
-                disabled={props.isBusy}
-              />
-              <span className="body-sm">{props.t("emailPushSetting")}</span>
-            </label>
-            <button className="button secondary" onClick={() => props.stopAutomaticQuery(props.targetCase)} disabled={props.isBusy || !props.targetCase.isEnabled}>
-              {props.t("stopAutomaticQuery")}
-            </button>
-          </div>
+          <SettingsToggle
+            label={props.t("emailPushSetting")}
+            description={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")}
+            checked={props.targetCase.emailNotificationsEnabled}
+            onChange={() => props.toggleEmailPush(props.targetCase)}
+            disabled={props.isBusy}
+            trailing={(
+              <button className="button secondary" onClick={() => props.stopAutomaticQuery(props.targetCase)} disabled={props.isBusy || !props.targetCase.isEnabled}>
+                {props.t("stopAutomaticQuery")}
+              </button>
+            )}
+          />
         </div>
       </section>
       <section className="panel">
@@ -3792,10 +3910,7 @@ function KoreaCaseDetail(props: {
             );
           })}
           {sortedHistory.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-icon"><History size={24} /></div>
-              <p>{props.t("koreaNoHistory")}</p>
-            </div>
+            <EmptyState title={props.t("koreaNoHistory")} compact />
           )}
         </div>
       </section>
@@ -3808,7 +3923,8 @@ function IrccCaseDetail(props: {
   history: IrccHistoryItem[];
   runQuery: (caseId: number) => Promise<void>;
   sendTestEmail: (caseId: number) => Promise<void>;
-  removeCase: (caseId: number) => Promise<void>;
+  onRequestDelete: () => void;
+  onBackToList: () => void;
   toggleEmailPush: (targetCase: IrccCase) => Promise<void>;
   toggleAutomaticQuery: (targetCase: IrccCase) => Promise<void>;
   isBusy: boolean;
@@ -3881,6 +3997,9 @@ function IrccCaseDetail(props: {
       <section className="panel">
         <div className="panel-title">
           <div>
+            <button type="button" className="button tertiary mobile-back-button" onClick={props.onBackToList}>
+              <ChevronLeft size={16} /> {props.t("backToList")}
+            </button>
             <h2 className="headline">{props.targetCase.displayName}</h2>
             <p className="form-intro compact">{props.t("countryCanada")} · {props.t("irccPortalTitle")} · {props.t("irccAlphaLabel")}</p>
           </div>
@@ -3891,7 +4010,7 @@ function IrccCaseDetail(props: {
             <button className="button secondary" onClick={() => props.sendTestEmail(props.targetCase.id)} disabled={props.isBusy || props.history.length === 0}>
               <Mail size={16} /> {props.t("irccTestEmail")}
             </button>
-            <button className="icon-button danger" onClick={() => { if (confirm(props.t("confirmDelete"))) void props.removeCase(props.targetCase.id); }}>
+            <button className="icon-button danger" onClick={props.onRequestDelete}>
               <Trash2 size={16} />
             </button>
           </div>
@@ -3919,20 +4038,18 @@ function IrccCaseDetail(props: {
             <Metric icon={<Clock size={14} />} label={props.t("lastCheckedAt")} value={formatTime(props.targetCase.lastCheckedAt, props.languageMode)} />
             <Metric icon={<Clock size={14} />} label={props.t("nextCheckAt")} value={formatTime(props.targetCase.nextCheckAt, props.languageMode)} />
           </div>
-          <div className="settings-row">
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={props.targetCase.emailNotificationsEnabled}
-                onChange={() => props.toggleEmailPush(props.targetCase)}
-                disabled={props.isBusy}
-              />
-              <span className="body-sm">{props.t("emailPushSetting")}</span>
-            </label>
-            <button className="button secondary" onClick={() => props.toggleAutomaticQuery(props.targetCase)} disabled={props.isBusy}>
-              {props.targetCase.isEnabled ? props.t("stopAutomaticQuery") : props.t("startAutomaticQuery")}
-            </button>
-          </div>
+          <SettingsToggle
+            label={props.t("emailPushSetting")}
+            description={props.targetCase.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")}
+            checked={props.targetCase.emailNotificationsEnabled}
+            onChange={() => props.toggleEmailPush(props.targetCase)}
+            disabled={props.isBusy}
+            trailing={(
+              <button className="button secondary" onClick={() => props.toggleAutomaticQuery(props.targetCase)} disabled={props.isBusy}>
+                {props.targetCase.isEnabled ? props.t("stopAutomaticQuery") : props.t("startAutomaticQuery")}
+              </button>
+            )}
+          />
         </div>
       </section>
 
@@ -4068,10 +4185,7 @@ function IrccCaseDetail(props: {
             );
           })}
           {sortedMessages.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-icon"><Mail size={24} /></div>
-              <p>{props.t("irccNoHistory")}</p>
-            </div>
+            <EmptyState title={props.t("irccNoHistory")} compact />
           )}
         </div>
       </section>
@@ -4096,10 +4210,7 @@ function IrccCaseDetail(props: {
             </div>
           ))}
           {props.history.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-icon"><History size={24} /></div>
-              <p>{props.t("irccNoHistory")}</p>
-            </div>
+            <EmptyState title={props.t("irccNoHistory")} compact />
           )}
         </div>
       </section>
@@ -4320,34 +4431,20 @@ function PassportSlotMonitorPanel(props: {
           {props.monitor.lastErrorMessage && (
             <Metric label={props.t("passportSlotLastError")} value={props.monitor.lastErrorMessage} />
           )}
-          <div className="settings-row">
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={props.monitor.isEnabled}
-                onChange={() => props.toggleMonitor(props.selectedCase, props.monitor!)}
-                disabled={props.isBusy}
-              />
-              <span className="body-sm">{props.t("autoMonitor")}</span>
-            </label>
-            <span className={`status-badge ${props.monitor.isEnabled ? "success" : ""}`}>
-              {props.monitor.isEnabled ? props.t("passportSlotEnabled") : props.t("passportSlotDisabled")}
-            </span>
-          </div>
-          <div className="settings-row">
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={props.monitor.emailNotificationsEnabled}
-                onChange={() => props.toggleEmailNotifications(props.selectedCase, props.monitor!)}
-                disabled={props.isBusy}
-              />
-              <span className="body-sm">{props.t("emailPushSetting")}</span>
-            </label>
-            <span className={`status-badge ${props.monitor.emailNotificationsEnabled ? "success" : ""}`}>
-              {props.monitor.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")}
-            </span>
-          </div>
+          <SettingsToggle
+            label={props.t("autoMonitor")}
+            description={props.monitor.isEnabled ? props.t("passportSlotEnabled") : props.t("passportSlotDisabled")}
+            checked={props.monitor.isEnabled}
+            onChange={() => props.toggleMonitor(props.selectedCase, props.monitor!)}
+            disabled={props.isBusy}
+          />
+          <SettingsToggle
+            label={props.t("emailPushSetting")}
+            description={props.monitor.emailNotificationsEnabled ? props.t("emailPushOn") : props.t("emailPushOff")}
+            checked={props.monitor.emailNotificationsEnabled}
+            onChange={() => props.toggleEmailNotifications(props.selectedCase, props.monitor!)}
+            disabled={props.isBusy}
+          />
           <div className="row-actions">
             <button
               type="button"
@@ -4385,11 +4482,11 @@ function PassportSlotMonitorPanel(props: {
                 <span>{item.notificationSent ? props.t("notificationSent") : props.t("notificationNotSent")}</span>
               </div>
             ))}
-            {props.history.length === 0 && <p className="empty-state compact">{props.t("noPassportSlotHistory")}</p>}
+            {props.history.length === 0 && <EmptyState title={props.t("noPassportSlotHistory")} compact />}
           </div>
         </div>
       ) : (
-        <p className="empty-state compact">{props.t("noPassportSlotMonitor")}</p>
+        <EmptyState title={props.t("noPassportSlotMonitor")} compact />
       )}
     </section>
   );
@@ -4445,7 +4542,7 @@ function ProfilePanel(props: {
           />
         </label>
         <label>
-          {props.languageMode === "zh" ? "当前密码" : "Current password"}
+          {props.t("currentPassword")}
           <input
             value={form.currentPassword}
             onChange={(event) => props.setProfileForm({ ...form, currentPassword: event.target.value })}
@@ -4456,7 +4553,7 @@ function ProfilePanel(props: {
         </label>
         <div className="two-col">
           <label>
-            {props.languageMode === "zh" ? "新密码" : "New password"}
+            {props.t("newPassword")}
             <input
               value={form.newPassword}
               onChange={(event) => props.setProfileForm({ ...form, newPassword: event.target.value })}
@@ -4466,7 +4563,7 @@ function ProfilePanel(props: {
             />
           </label>
           <label>
-            {props.languageMode === "zh" ? "确认新密码" : "Confirm new password"}
+            {props.t("confirmNewPassword")}
             <input
               value={form.confirmPassword}
               onChange={(event) => props.setProfileForm({ ...form, confirmPassword: event.target.value })}
@@ -4477,7 +4574,7 @@ function ProfilePanel(props: {
           </label>
         </div>
         <div>
-          <button className="button primary" disabled={props.isBusy}>{props.t("save")}</button>
+          <button className={`button primary ${props.isBusy ? "busy" : ""}`} disabled={props.isBusy}>{props.t("save")}</button>
         </div>
       </form>
       {isTermsDialogOpen && <TermsDialog t={props.t} languageMode={props.languageMode} onClose={() => setIsTermsDialogOpen(false)} />}
@@ -4800,7 +4897,7 @@ function AdminPanel(props: {
                           </div>
                         );
                       })}
-                      {ownedCases.length === 0 && <p className="empty-state compact">{props.t("noCases")}</p>}
+                      {ownedCases.length === 0 && <EmptyState title={props.t("noCases")} compact />}
                     </div>
                   </>
                 )}
@@ -4853,7 +4950,7 @@ function AdminPanel(props: {
             </table>
           </div>
         ) : (
-          <p className="empty-state">{props.t("workerQueueEmpty")}</p>
+          <EmptyState title={props.t("workerQueueEmpty")} compact />
         )}
 
         <h3 className="subhead compact-heading spaced">{props.t("workerScheduledQueue")}</h3>
@@ -4889,7 +4986,7 @@ function AdminPanel(props: {
             </table>
           </div>
         ) : (
-          <p className="empty-state">{props.t("workerScheduledQueueEmpty")}</p>
+          <EmptyState title={props.t("workerScheduledQueueEmpty")} compact />
         )}
 
         <button type="button" className="subsection-toggle spaced" onClick={toggleFinishedQueue}>
@@ -4935,7 +5032,7 @@ function AdminPanel(props: {
             </table>
           </div>
         ) : !isFinishedQueueCollapsed ? (
-          <p className="empty-state">{props.t("workerFinishedQueueEmpty")}</p>
+          <EmptyState title={props.t("workerFinishedQueueEmpty")} compact />
         ) : null}
       </section>
 
@@ -5035,7 +5132,7 @@ function AdminPanel(props: {
               </section>
             );
           })}
-          {props.queryRuns.length === 0 && <p className="empty-state">{props.t("noLogs")}</p>}
+          {props.queryRuns.length === 0 && <EmptyState title={props.t("noLogs")} compact />}
         </div>
       </section>
 
@@ -5082,7 +5179,7 @@ function AdminPanel(props: {
               </section>
             );
           })}
-          {props.emailDeliveryLogs.length === 0 && <p className="empty-state">{props.t("noLogs")}</p>}
+          {props.emailDeliveryLogs.length === 0 && <EmptyState title={props.t("noLogs")} compact />}
         </div>
       </section>
 
@@ -5128,7 +5225,7 @@ function AdminPanel(props: {
               </section>
             );
           })}
-          {props.securityEvents.length === 0 && <p className="empty-state">{props.t("noLogs")}</p>}
+          {props.securityEvents.length === 0 && <EmptyState title={props.t("noLogs")} compact />}
         </div>
       </section>
     </div>
@@ -5155,18 +5252,27 @@ function NewProfileForm(props: {
 }) {
   return (
     <div className="stack">
-      <div className="country-cards">
-        <button type="button" className={`country-card ${props.country === "us" ? "selected" : ""}`} onClick={() => props.setCountry("us")}>
-          <div className="country-card-icon"><Landmark className="icon" size={24} /></div>
-          <span>{props.t("countryUnitedStates")}</span>
+      <div className="country-picker" role="radiogroup" aria-label={props.t("statusMonitoring")}>
+        <button type="button" role="radio" aria-checked={props.country === "us"} className={`country-option ${props.country === "us" ? "selected" : ""}`} onClick={() => props.setCountry("us")}>
+          <div className="country-option-icon"><Landmark className="icon" size={20} /></div>
+          <div className="country-option-copy">
+            <span className="country-option-label">{props.t("countryUnitedStates")}</span>
+            <span className="country-option-hint">{props.t("countryUnitedStatesHint")}</span>
+          </div>
         </button>
-        <button type="button" className={`country-card ${props.country === "ca" ? "selected" : ""}`} onClick={() => props.setCountry("ca")}>
-          <div className="country-card-icon"><TreePine className="icon" size={24} /></div>
-          <span>{props.t("countryCanada")}</span>
+        <button type="button" role="radio" aria-checked={props.country === "ca"} className={`country-option ${props.country === "ca" ? "selected" : ""}`} onClick={() => props.setCountry("ca")}>
+          <div className="country-option-icon"><TreePine className="icon" size={20} /></div>
+          <div className="country-option-copy">
+            <span className="country-option-label">{props.t("countryCanada")}</span>
+            <span className="country-option-hint">{props.t("countryCanadaHint")}</span>
+          </div>
         </button>
-        <button type="button" className={`country-card ${props.country === "kr" ? "selected" : ""}`} onClick={() => props.setCountry("kr")}>
-          <div className="country-card-icon"><LucideMap className="icon" size={24} /></div>
-          <span>{props.t("countryKorea")}</span>
+        <button type="button" role="radio" aria-checked={props.country === "kr"} className={`country-option ${props.country === "kr" ? "selected" : ""}`} onClick={() => props.setCountry("kr")}>
+          <div className="country-option-icon"><LucideMap className="icon" size={20} /></div>
+          <div className="country-option-copy">
+            <span className="country-option-label">{props.t("countryKorea")}</span>
+            <span className="country-option-hint">{props.t("countryKoreaHint")}</span>
+          </div>
         </button>
       </div>
       {props.country === "us" ? (

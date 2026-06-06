@@ -1,3 +1,8 @@
+## Scope
+
+- **Normative（必须遵守）**：本文件 §Overview 中的 CEACStatusBot 产品业务规则，以及 §CEACStatusBot Brand Icon 中的图标使用规则。
+- **Reference only（仅供参考，非实现约束）**：从 Linear 营销站提取的颜色、排版、布局与组件命名（§Colors 及之后各节）。Dashboard 产品 UI 以工具界面为准，暗色为默认主题，亮色主题同等支持；营销站 display 尺度与 eyebrow 分类学不适用于本应用。
+
 ## Overview
 
 CEACStatusBot 的产品界面以签证档案为核心对象。每个档案同时承载 CEAC 状态查询和可选的 GTS 护照预约 slot 监控：CEAC 状态进入 Approved 或 Issued 后，详情页中的“护照预约监控”区域成为主要后续动作，用户填写 UID/HAL 后系统以 5-10 分钟随机间隔轮询 GTS slot。该区域必须保持操作型工具风格，优先展示启停状态、最近 slot 数、最近错误、下次查询时间和手动查询按钮，不做营销式说明卡。

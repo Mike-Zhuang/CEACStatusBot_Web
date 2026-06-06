@@ -1,0 +1,20 @@
+import type { ReactNode } from "react";
+
+interface EmptyStateProps {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  compact?: boolean;
+}
+
+export function EmptyState(props: EmptyStateProps) {
+  return (
+    <div className={`empty-state ${props.compact ? "compact" : ""}`}>
+      <div className="empty-state-copy">
+        <h3 className="empty-state-title">{props.title}</h3>
+        {props.description && <p className="empty-state-description">{props.description}</p>}
+      </div>
+      {props.action}
+    </div>
+  );
+}
