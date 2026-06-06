@@ -3009,7 +3009,7 @@ export function App() {
                     return (
                       <div
                         key={`${profile.profileType}-${item.id}`}
-                        className={`case-row hover-card ${countryClass} ${isSelected ? "selected" : ""}`}
+                        className={`case-row ${countryClass} ${isSelected ? "selected" : ""}`}
                         onClick={() => {
                           setIsCreatingProfile(false);
                           if (isCeac) {

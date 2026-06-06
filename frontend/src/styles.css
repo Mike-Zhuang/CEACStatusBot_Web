@@ -100,6 +100,8 @@
   --spacing-xl: 32px;
   --spacing-xxl: 48px;
   --spacing-section: 96px;
+  --block-gap: var(--spacing-lg);
+  --section-gap: var(--spacing-xl);
 
   --rounded-xs: 4px;
   --rounded-sm: 6px;
@@ -278,24 +280,18 @@ body::before {
 .status-hero {
   display: grid;
   gap: 16px;
-  padding: 18px 20px;
-  border-left: 3px solid var(--primary);
-  background: var(--surface-2);
+  padding: 0 0 var(--block-gap);
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
 }
 
-.status-hero.approved {
-  border-left-color: var(--semantic-success);
-  background: var(--semantic-success-surface);
-}
-
-.status-hero.issued {
-  border-left-color: var(--semantic-issued);
-  background: var(--semantic-issued-surface);
-}
-
-.status-hero.negative {
-  border-left-color: var(--danger);
-  background: var(--semantic-danger-surface);
+.status-hero.approved,
+.status-hero.issued,
+.status-hero.negative,
+.status-hero.pending,
+.status-hero.unknown {
+  background: transparent;
 }
 
 .status-hero-kicker {
@@ -343,8 +339,7 @@ body::before {
 }
 
 .field-sheet {
-  border-top: 1px solid var(--hairline);
-  padding-top: 16px;
+  margin: 0;
 }
 
 .field-sheet-title {
@@ -361,22 +356,22 @@ body::before {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0;
   margin: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--rounded-sm);
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .field-sheet-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
   gap: 12px;
-  padding: 10px 12px;
+  padding: 10px 0;
   border-bottom: 1px solid var(--hairline);
-  background: var(--surface-1);
+  background: transparent;
 }
 
 .field-sheet-row:nth-child(even) {
-  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface-1));
+  background: transparent;
 }
 
 .field-sheet-row:last-child {
@@ -589,7 +584,7 @@ h1, h2, h3 {
 }
 
 .stack-spaced {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: 0;
 }
 
 .form-actions {
@@ -621,7 +616,7 @@ input:disabled {
 
 .stack {
   display: grid;
-  gap: 16px;
+  gap: var(--block-gap);
 }
 
 .inline-field, .two-col, .nav-actions, .row-actions, .utility-actions, .auth-tools {
@@ -1058,16 +1053,27 @@ select:user-invalid:not(:focus) {
   line-height: 1.45;
 }
 
-/* Notice */
+/* Notice — inline callout, not a nested card */
 .notice {
   margin: 0;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--hairline);
-  border-radius: var(--rounded-md);
-  background: var(--surface-2);
-  color: var(--ink);
+  padding: var(--spacing-sm) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-muted);
   font-size: 14px;
-  box-shadow: inset 0 1px 0 var(--surface-highlight);
+  line-height: 1.5;
+}
+
+.notice.action-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: var(--spacing-md) 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink);
 }
 
 /* App Layout Shell */
@@ -1079,9 +1085,10 @@ select:user-invalid:not(:focus) {
 
 .site-footer {
   margin-top: auto;
-  padding: 20px 24px 24px;
+  padding: var(--section-gap) 24px 24px;
   display: grid;
-  gap: 16px;
+  gap: var(--block-gap);
+  border-top: 1px solid var(--hairline);
   text-align: center;
   color: var(--ink-tertiary);
   font-size: 12px;
@@ -1095,18 +1102,11 @@ select:user-invalid:not(:focus) {
 }
 
 .site-footer-support {
+  display: grid;
+  gap: var(--block-gap);
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-}
-
-.site-footer-support {
-  display: grid;
-  gap: 12px;
-}
-
-.site-footer-support .support-card {
-  background: var(--surface-1);
 }
 
 .auth-shell .site-footer {
@@ -1115,6 +1115,7 @@ select:user-invalid:not(:focus) {
   bottom: 20px;
   left: 24px;
   padding: 0;
+  border-top: 0;
 }
 
 .site-footer a {
@@ -1130,10 +1131,10 @@ select:user-invalid:not(:focus) {
 .support-card {
   display: grid;
   gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  background: var(--surface-2);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .support-card-layout {
@@ -1256,21 +1257,19 @@ select:user-invalid:not(:focus) {
 .account-tier-card {
   display: grid;
   gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  background: var(--surface-2);
-  margin-bottom: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .terms-profile-card {
   display: grid;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  background: var(--surface-1);
-  margin-bottom: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .terms-profile-card p {
@@ -1434,6 +1433,9 @@ select:user-invalid:not(:focus) {
 
 /* Panels */
 .panel {
+  display: grid;
+  gap: var(--block-gap);
+  align-content: start;
   background: var(--surface-1);
   border: 1px solid var(--hairline);
   border-radius: var(--rounded-sm);
@@ -1449,14 +1451,115 @@ select:user-invalid:not(:focus) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 0;
   min-width: 0;
+}
+
+.dashboard-detail.stack,
+.dashboard-sidebar.stack,
+.ircc-detail-stack {
+  display: grid;
+  gap: var(--section-gap);
+}
+
+/* Panel interior: one surface, dividers between blocks — no nested cards */
+.panel .empty-state {
+  padding: var(--spacing-md) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.panel .official-form-note,
+.panel .smtp-box {
+  padding: var(--spacing-sm) 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.panel .official-form-note {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.panel .log-table-wrap,
+.panel .log-group {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.panel .log-group-header,
+.panel .subsection-toggle {
+  min-height: auto;
+  margin-top: 0;
+  padding: var(--spacing-md) 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+}
+
+.panel .log-group-header:hover,
+.panel .subsection-toggle:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.panel .log-card-list.visible {
+  gap: 0;
+  padding: 0;
+}
+
+.panel .log-card {
+  padding: var(--spacing-md) 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+}
+
+.panel .log-card:last-child {
+  border-bottom: 0;
+}
+
+.panel .admin-user-card {
+  gap: var(--block-gap);
+  padding: var(--spacing-md) 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+}
+
+.panel .admin-user-card:last-child {
+  border-bottom: 0;
+}
+
+.panel .admin-user-card:not(.collapsed):hover {
+  background: transparent;
+}
+
+.panel .admin-profile-card {
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+}
+
+.panel .admin-profile-card:last-child {
+  border-bottom: 0;
 }
 
 /* Case List */
 .case-list {
   display: grid;
-  gap: 8px;
+  gap: 0;
+}
+
+.panel .case-list {
+  margin-inline: calc(var(--spacing-lg) * -1);
 }
 
 .case-row {
@@ -1465,12 +1568,13 @@ select:user-invalid:not(:focus) {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  padding: 12px 12px 12px 16px;
-  background: var(--surface-1);
-  border: 1px solid var(--hairline);
-  border-radius: var(--rounded-sm);
+  padding: 12px 16px 12px 20px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
   text-align: left;
-  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+  transition: background-color var(--transition-fast);
   cursor: pointer;
 }
 
@@ -1495,7 +1599,6 @@ select:user-invalid:not(:focus) {
 
 .case-row:hover {
   background: var(--surface-2);
-  border-color: var(--hairline-strong);
 }
 
 .case-row:focus-visible {
@@ -1508,9 +1611,8 @@ select:user-invalid:not(:focus) {
 }
 
 .case-row.selected {
-  background: var(--surface-2);
-  border-color: var(--hairline-strong);
-  box-shadow: inset 4px 0 0 var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-1));
+  box-shadow: none;
 }
 
 .case-row-icon {
@@ -1700,11 +1802,6 @@ select:user-invalid:not(:focus) {
   margin-top: 4px;
 }
 
-.ircc-detail-stack {
-  display: grid;
-  gap: 24px;
-}
-
 .ircc-section {
   margin-top: 4px;
 }
@@ -1712,18 +1809,11 @@ select:user-invalid:not(:focus) {
 .ircc-status-overview {
   display: grid;
   gap: 16px;
-  margin-bottom: 20px;
-  padding: 16px 18px;
-  border-left: 3px solid var(--primary);
-  background: var(--surface-2);
-}
-
-.ircc-status-overview.approved {
-  border-left-color: var(--semantic-success);
-}
-
-.ircc-status-overview.negative {
-  border-left-color: var(--danger);
+  margin-bottom: 0;
+  padding: 0 0 var(--block-gap);
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
 }
 
 .ircc-overview-group {
@@ -1758,13 +1848,6 @@ select:user-invalid:not(:focus) {
 
 .ircc-ghost-note {
   margin-top: 22px;
-}
-
-.action-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .action-notice span {
@@ -1819,24 +1902,24 @@ select:user-invalid:not(:focus) {
   overflow-wrap: anywhere;
 }
 
-/* Timeline — correspondence / receipt log */
+/* Timeline — receipt log rows, not nested cards */
 .timeline {
   display: grid;
-  gap: 10px;
+  gap: 0;
 }
 
 .timeline-item {
   display: grid;
   gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid var(--hairline);
-  border-left: 3px solid var(--primary);
-  border-radius: var(--rounded-sm);
-  background: var(--surface-2);
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
 }
 
 .timeline-item:last-child {
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 0;
 }
 
 .timeline-header {
@@ -1905,7 +1988,7 @@ select:user-invalid:not(:focus) {
 /* Admin */
 .admin-user-list {
   display: grid;
-  gap: 12px;
+  gap: var(--block-gap);
 }
 
 .admin-user-card {
@@ -1974,7 +2057,7 @@ select:user-invalid:not(:focus) {
 }
 
 .case-list.compact {
-  gap: 6px;
+  gap: 0;
 }
 
 .admin-profile-card {
@@ -2230,7 +2313,7 @@ select:user-invalid:not(:focus) {
 
 .log-groups {
   display: grid;
-  gap: 12px;
+  gap: var(--block-gap);
 }
 
 .log-group {
@@ -2634,10 +2717,11 @@ select:user-invalid:not(:focus) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px;
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  background: var(--canvas);
+  padding: var(--spacing-md) 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
 }
 
 .settings-toggle {
@@ -2645,10 +2729,16 @@ select:user-invalid:not(:focus) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--rounded-md);
-  background: var(--canvas);
+  padding: var(--spacing-md) 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+}
+
+.stack > .settings-toggle:first-child {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .settings-toggle-main {
@@ -2764,7 +2854,7 @@ select:user-invalid:not(:focus) {
   .panel-title {
     align-items: flex-start;
     flex-direction: column;
-    margin-bottom: 18px;
+    margin-bottom: 0;
   }
 
   .panel-title > .button,
