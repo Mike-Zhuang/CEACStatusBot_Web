@@ -5233,6 +5233,7 @@ function NewProfileForm(props: {
       <CountrySegment
         country={props.country}
         setCountry={props.setCountry}
+        groupLabel={props.t("statusMonitoring")}
         options={[
           { id: "us", code: "US", label: props.t("countryUnitedStates"), hint: props.t("countryUnitedStatesHint") },
           { id: "ca", code: "CA", label: props.t("countryCanada"), hint: props.t("countryCanadaHint") },
