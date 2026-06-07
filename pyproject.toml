@@ -28,7 +28,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",
-    "ruff>=0.15.0",
+    "ruff>=0.15.16",
 ]
 audit = [
     "pip-audit>=2.9.0",
