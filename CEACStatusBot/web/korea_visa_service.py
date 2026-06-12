@@ -269,6 +269,7 @@ def createKoreaCase(userId: int, payload: KoreaCaseInput) -> dict[str, Any]:
                 now,
             ),
         )
+        connection.execute("UPDATE users SET has_application_profile_history = 1, updated_at = ? WHERE id = ?", (now, userId))
     case = getKoreaCase(int(cursor.lastrowid), userId)
     if case is None:
         raise RuntimeError("创建韩国签证档案失败")

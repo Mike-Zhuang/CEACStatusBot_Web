@@ -50,6 +50,7 @@ def initializeDatabase() -> None:
                 terms_accepted_at TEXT,
                 terms_acceptance_ip_hash TEXT NOT NULL DEFAULT '',
                 terms_acceptance_device_hash TEXT NOT NULL DEFAULT '',
+                has_application_profile_history INTEGER NOT NULL DEFAULT 0,
                 inactivity_notice_sent_at TEXT,
                 timezone TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
@@ -472,6 +473,10 @@ def initializeDatabase() -> None:
             connection.execute(
                 "ALTER TABLE users ADD COLUMN terms_acceptance_device_hash TEXT NOT NULL DEFAULT ''",
             )
+        if "has_application_profile_history" not in userColumns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN has_application_profile_history INTEGER NOT NULL DEFAULT 0",
+            )
         if "inactivity_notice_sent_at" not in userColumns:
             connection.execute(
                 "ALTER TABLE users ADD COLUMN inactivity_notice_sent_at TEXT",
@@ -480,6 +485,18 @@ def initializeDatabase() -> None:
             connection.execute(
                 "ALTER TABLE users ADD COLUMN timezone TEXT NOT NULL DEFAULT ''",
             )
+        connection.execute(
+            """
+            UPDATE users
+            SET has_application_profile_history = 1
+            WHERE has_application_profile_history = 0
+              AND (
+                  EXISTS (SELECT 1 FROM ceac_cases c WHERE c.user_id = users.id)
+                  OR EXISTS (SELECT 1 FROM ircc_cases ic WHERE ic.user_id = users.id)
+                  OR EXISTS (SELECT 1 FROM korea_cases kc WHERE kc.user_id = users.id)
+              )
+            """,
+        )
         if "email_notifications_enabled" not in columns:
             connection.execute(
                 "ALTER TABLE ceac_cases ADD COLUMN email_notifications_enabled INTEGER NOT NULL DEFAULT 1",

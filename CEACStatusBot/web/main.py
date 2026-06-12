@@ -384,21 +384,10 @@ def parseOptionalIso(value: str | None) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def latestUserStatusOrSlotActivity(user: dict) -> datetime:
-    candidates = [parseOptionalIso(user.get("created_at")) or datetime.now(UTC)]
-    for key in (
-        "latest_status_at",
-        "latest_slot_at",
-        "latest_ircc_at",
-        "latest_korea_at",
-        "latest_ceac_run_at",
-        "latest_ircc_run_at",
-        "latest_korea_run_at",
-    ):
-        parsed = parseOptionalIso(user.get(key))
-        if parsed:
-            candidates.append(parsed)
-    return max(candidates)
+def hasUserApplicationProfiles(user: dict) -> bool:
+    if int(user.get("has_application_profile_history") or 0) > 0:
+        return True
+    return any(int(user.get(key) or 0) > 0 for key in ("ceac_case_count", "ircc_case_count", "korea_case_count"))
 
 
 def processInactiveAccounts() -> None:
@@ -424,48 +413,22 @@ def processInactiveAccounts() -> None:
                 u.role,
                 u.created_at,
                 u.inactivity_notice_sent_at,
+                u.has_application_profile_history,
                 (
-                    SELECT max(h.fetched_at)
-                    FROM case_status_history h
-                    JOIN ceac_cases c ON c.id = h.case_id
+                    SELECT COUNT(*)
+                    FROM ceac_cases c
                     WHERE c.user_id = u.id
-                ) AS latest_status_at,
+                ) AS ceac_case_count,
                 (
-                    SELECT max(ph.fetched_at)
-                    FROM passport_slot_history ph
-                    JOIN ceac_cases c ON c.id = ph.case_id
-                    WHERE c.user_id = u.id
-                ) AS latest_slot_at,
-                (
-                    SELECT max(ih.fetched_at)
-                    FROM ircc_status_history ih
-                    JOIN ircc_cases ic ON ic.id = ih.case_id
+                    SELECT COUNT(*)
+                    FROM ircc_cases ic
                     WHERE ic.user_id = u.id
-                ) AS latest_ircc_at,
+                ) AS ircc_case_count,
                 (
-                    SELECT max(kh.fetched_at)
-                    FROM korea_status_history kh
-                    JOIN korea_cases kc ON kc.id = kh.case_id
+                    SELECT COUNT(*)
+                    FROM korea_cases kc
                     WHERE kc.user_id = u.id
-                ) AS latest_korea_at,
-                (
-                    SELECT max(r.finished_at)
-                    FROM query_runs r
-                    JOIN ceac_cases c ON c.id = r.case_id
-                    WHERE c.user_id = u.id
-                ) AS latest_ceac_run_at,
-                (
-                    SELECT max(ir.finished_at)
-                    FROM ircc_query_runs ir
-                    JOIN ircc_cases ic ON ic.id = ir.case_id
-                    WHERE ic.user_id = u.id
-                ) AS latest_ircc_run_at,
-                (
-                    SELECT max(kr.finished_at)
-                    FROM korea_query_runs kr
-                    JOIN korea_cases kc ON kc.id = kr.case_id
-                    WHERE kc.user_id = u.id
-                ) AS latest_korea_run_at
+                ) AS korea_case_count
             FROM users u
             WHERE lower(trim(coalesce(u.role, ''))) != 'admin'
             """,
@@ -473,24 +436,27 @@ def processInactiveAccounts() -> None:
         for row in rows:
             if str(row.get("role") or "").strip().lower() == "admin":
                 continue
-            latestActivity = latestUserStatusOrSlotActivity(row)
             noticeSentAt = parseOptionalIso(row.get("inactivity_notice_sent_at"))
-            if latestActivity > noticeBefore:
+            if hasUserApplicationProfiles(row):
                 if noticeSentAt:
                     connection.execute(
                         "UPDATE users SET inactivity_notice_sent_at = NULL, updated_at = ? WHERE id = ?",
                         (now.isoformat(), row["id"]),
                     )
                 continue
-            if latestActivity <= deleteBefore and noticeSentAt:
+            createdAt = parseOptionalIso(row.get("created_at")) or now
+            if createdAt > noticeBefore:
+                continue
+            if createdAt <= deleteBefore and noticeSentAt:
                 try:
                     sendSystemEmail(
                         row["email"],
-                        "CEACStatusBot 账号已因长期无动态删除",
+                        "CEACStatusBot 空账号已自动删除",
                         "\n".join(
                             [
-                                "你的 CEACStatusBot 账号已因长期没有新的签证状态、slot 动态或查询运行记录被自动删除。",
-                                "规则：连续 15 天没有 CEAC、GTS slot、IRCC 或韩国签证相关动态会先发送提醒；提醒后再过 15 天仍无动态，即总计约 30 天无动态，会删除账号和相关档案数据。",
+                                "你的 CEACStatusBot 账号已因注册后长期未添加任何签证申请档案被自动删除。",
+                                "规则：普通账号注册约 15 天后仍未添加 CEAC、IRCC 或韩国签证申请档案会先发送提醒；注册约 30 天后仍未添加任何申请档案，会删除账号。",
+                                "只要账号添加过申请档案，就不适用这条自动删除规则。",
                                 "管理员账号不适用这条自动删除规则。",
                                 "",
                                 "如仍需使用，可重新注册账号。",
@@ -505,11 +471,12 @@ def processInactiveAccounts() -> None:
                 try:
                     sendSystemEmail(
                         row["email"],
-                        "CEACStatusBot 账号长期无动态提醒",
+                        "CEACStatusBot 空账号删除提醒",
                         "\n".join(
                             [
-                                "你的 CEACStatusBot 账号已经约 15 天没有新的 CEAC、GTS slot、IRCC 或韩国签证相关动态。",
-                                "如果接下来约 15 天仍没有新的签证状态、slot 动态或查询运行记录，系统会自动删除该账号和相关档案数据。",
+                                "你的 CEACStatusBot 账号注册后已经约 15 天未添加任何签证申请档案。",
+                                "如果注册约 30 天后仍未添加 CEAC、IRCC 或韩国签证申请档案，系统会自动删除该账号。",
+                                "只要账号添加过申请档案，就不适用这条自动删除规则。",
                                 "管理员账号不适用这条自动删除规则。",
                                 "",
                                 f"登录入口：{settings.appBaseUrl}",

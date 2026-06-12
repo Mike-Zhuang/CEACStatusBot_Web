@@ -19,7 +19,7 @@ Data is used only to run monitoring, display history, enforce quotas, deliver no
 
 ## Retention
 
-The current account cleanup policy sends an inactivity notice after about 15 days without relevant CEAC, GTS, IRCC, or Korea status activity and deletes eligible inactive non-admin accounts after about 30 days. Administrator accounts are exempt. Operators should review this policy for their deployment.
+The current account cleanup policy sends an empty-account notice when a non-admin account still has no CEAC, IRCC, or Korea application profile about 15 days after registration, and deletes that empty account after about 30 days if it still has no application profile and was already warned. Accounts with at least one application profile are retained permanently by this cleanup job. Administrator accounts are exempt. Operators should review this policy for their deployment.
 
 ## Third Parties
 

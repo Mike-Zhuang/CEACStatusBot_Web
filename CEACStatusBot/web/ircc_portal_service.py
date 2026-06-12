@@ -1236,6 +1236,7 @@ def createIrccCase(userId: int, payload: IrccCaseInput) -> dict[str, Any]:
                 now,
             ),
         )
+        connection.execute("UPDATE users SET has_application_profile_history = 1, updated_at = ? WHERE id = ?", (now, userId))
     updateAccountAuthState(accountId, tokenCache)
     case = getIrccCase(int(cursor.lastrowid), userId)
     if case is None:

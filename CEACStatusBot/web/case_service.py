@@ -315,6 +315,7 @@ def createCase(userId: int, payload: CeacCaseInput) -> dict[str, Any]:
             ),
         )
         caseId = cursor.lastrowid
+        connection.execute("UPDATE users SET has_application_profile_history = 1, updated_at = ? WHERE id = ?", (now, userId))
     case = getCase(int(caseId), userId)
     if case is None:
         raise RuntimeError("创建档案失败")
