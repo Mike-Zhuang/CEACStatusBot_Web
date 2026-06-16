@@ -1,6 +1,13 @@
 import unittest
 
-from CEACStatusBot.web.ircc_portal_service import buildIrccStatusOverview, normalizeSnapshot, stableHash
+from CEACStatusBot.web.ircc_portal_service import (
+    buildChangeSummary,
+    buildIrccStatusOverview,
+    formatIrccDocumentStatusItem,
+    normalizeSnapshot,
+    stableHash,
+    summarizeSnapshot,
+)
 
 
 def buildSnapshot(**overrides: object) -> dict[str, object]:
@@ -68,6 +75,74 @@ class IrccStatusOverviewTest(unittest.TestCase):
         current["appStatus"]["UpdatedDate"] = "2026-05-29T11:00:00.000Z"
 
         self.assertEqual(stableHash(normalizeSnapshot(previous)), stableHash(normalizeSnapshot(current)))
+
+    def test_document_status_item_is_structured_and_masked(self) -> None:
+        item = {
+            "name": "TEST APPLICANT",
+            "documentType": "DSDT01",
+            "documentNumber": "D123456789",
+            "documentStatus": "DS1",
+            "expiryDate": "02/16/2035",
+            "statusUpdatedDate": "06/16/2026",
+            "travelDocumentNumber": "P987654321",
+            "countryOfIssue": "202",
+            "showNAExpiryDate": "N",
+        }
+
+        formatted = formatIrccDocumentStatusItem(item)
+
+        self.assertIn("未知文件类型：DSDT01", formatted)
+        self.assertIn("未知文件状态：DS1", formatted)
+        self.assertIn("未知签发国家/地区代码：202", formatted)
+        self.assertIn("******6789", formatted)
+        self.assertIn("******4321", formatted)
+        self.assertNotIn("D123456789", formatted)
+        self.assertNotIn("P987654321", formatted)
+
+    def test_document_status_change_summary_does_not_emit_raw_json(self) -> None:
+        previous = buildSnapshot(documentStatus=[])
+        current = buildSnapshot(
+            documentStatus=[
+                {
+                    "name": "TEST APPLICANT",
+                    "documentType": "DSDT01",
+                    "documentNumber": "D123456789",
+                    "documentStatus": "DS1",
+                    "expiryDate": "02/16/2035",
+                    "statusUpdatedDate": "06/16/2026",
+                    "travelDocumentNumber": "P987654321",
+                    "countryOfIssue": "202",
+                    "showNAExpiryDate": "N",
+                }
+            ]
+        )
+
+        summary = buildChangeSummary(previous, current)
+
+        self.assertIn("新增文件状态", summary)
+        self.assertIn("未知文件状态：DS1", summary)
+        self.assertNotIn("[{", summary)
+        self.assertNotIn("D123456789", summary)
+        self.assertNotIn("P987654321", summary)
+
+    def test_snapshot_summary_includes_document_status_details(self) -> None:
+        snapshot = buildSnapshot(
+            documentStatus=[
+                {
+                    "documentType": "DSDT01",
+                    "documentNumber": "D123456789",
+                    "documentStatus": "DS1",
+                    "statusUpdatedDate": "06/16/2026",
+                }
+            ]
+        )
+
+        summary = summarizeSnapshot(snapshot)
+
+        self.assertIn("文件状态数量：1", summary)
+        self.assertIn("文件状态：", summary)
+        self.assertIn("未知文件类型：DSDT01", summary)
+        self.assertNotIn("D123456789", summary)
 
 
 if __name__ == "__main__":

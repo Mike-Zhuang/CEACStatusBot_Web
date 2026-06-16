@@ -3459,6 +3459,12 @@ const irccMessageTagMap: Record<string, { zh: string; en: string }> = {
   CorrespondenceSent: { zh: "IRCC 已发送信件", en: "IRCC correspondence sent" },
 };
 
+const irccDocumentTypeMap: Record<string, { zh: string; en: string }> = {};
+
+const irccDocumentStatusMap: Record<string, { zh: string; en: string }> = {};
+
+const irccCountryOfIssueMap: Record<string, { zh: string; en: string }> = {};
+
 const irccHeadlineCodeMap: Record<string, { zh: string; en: string }> = {
   FD2: { zh: "已获批", en: "Approved" },
   FD3: { zh: "已被拒", en: "Refused" },
@@ -3549,6 +3555,22 @@ function translateIrccChangeSummary(value: string, languageMode: LanguageMode): 
     .replace(/IRCC Portal 原始时间/g, "IRCC Portal original time")
     .replace(/申请消息新增：/g, "Application message added: ")
     .replace(/申请消息更新：/g, "Application message updated: ")
+    .replace(/新增文件状态：/g, "Document status added: ")
+    .replace(/文件状态已更新：/g, "Document status updated: ")
+    .replace(/文件状态已更新。/g, "Document status updated.")
+    .replace(/文件状态已移除：/g, "Document status removed: ")
+    .replace(/未知文件类型/g, "Unknown document type")
+    .replace(/未知文件状态/g, "Unknown document status")
+    .replace(/未知签发国家\/地区代码/g, "Unknown country/region of issue code")
+    .replace(/文件类型/g, "Document type")
+    .replace(/文件编号/g, "Document number")
+    .replace(/旅行证件号/g, "Travel document number")
+    .replace(/签发国家\/地区/g, "Country/region of issue")
+    .replace(/过期日期显示/g, "Expiry date display")
+    .replace(/过期日期/g, "Expiry date")
+    .replace(/状态更新时间/g, "Status updated date")
+    .replace(/ 从 /g, " from ")
+    .replace(/ 变为 /g, " to ")
     .replace(/在线申请提交收据/g, "Online application receipt")
     .replace(/IRCC 已发送信件/g, "IRCC correspondence sent")
     .replace(/未命名消息/g, "Untitled message")
@@ -3576,6 +3598,11 @@ function sanitizeIrccChangeSummaryLine(value: string, languageMode: LanguageMode
     && /(-&gt;|->)/.test(value);
   if (hasRawApplicantDiff) {
     return languageMode === "zh" ? "申请人信息已更新。" : "Applicant information updated.";
+  }
+  const hasRawDocumentDiff = /(\[\s*\{|\{\s*['"]?(documentNumber|travelDocumentNumber|documentStatus|documentType)['"]?\s*:)/.test(value)
+    && /(-&gt;|->)/.test(value);
+  if (hasRawDocumentDiff) {
+    return languageMode === "zh" ? "文件状态已更新。" : "Document status updated.";
   }
   return value
     .replace(/，时间：(?=\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2})/g, languageMode === "zh" ? "，IRCC Portal 原始时间：" : ", IRCC Portal original time: ")
@@ -3708,6 +3735,88 @@ function formatIrccMessageTag(value: unknown, languageMode: LanguageMode): strin
     return languageMode === "zh" ? "申请消息" : "Message";
   }
   return irccMessageTagMap[tag]?.[languageMode] ?? tag;
+}
+
+function maskSensitiveDocumentNumber(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return "-";
+  }
+  if (text.length <= 4) {
+    return "*".repeat(text.length);
+  }
+  return `${"*".repeat(text.length - 4)}${text.slice(-4)}`;
+}
+
+function formatIrccDocumentType(value: unknown, languageMode: LanguageMode): string {
+  const code = String(value ?? "").trim();
+  if (!code) {
+    return "-";
+  }
+  const mapped = irccDocumentTypeMap[code]?.[languageMode];
+  if (mapped) {
+    return languageMode === "zh" ? `${mapped}（${code}）` : `${mapped} (${code})`;
+  }
+  return languageMode === "zh" ? `未知文件类型：${code}` : `Unknown document type: ${code}`;
+}
+
+function formatIrccDocumentStatusCode(value: unknown, languageMode: LanguageMode): string {
+  const code = String(value ?? "").trim();
+  if (!code) {
+    return "-";
+  }
+  const mapped = irccDocumentStatusMap[code]?.[languageMode];
+  if (mapped) {
+    return languageMode === "zh" ? `${mapped}（${code}）` : `${mapped} (${code})`;
+  }
+  return languageMode === "zh" ? `未知文件状态：${code}` : `Unknown document status: ${code}`;
+}
+
+function formatIrccCountryOfIssue(value: unknown, languageMode: LanguageMode): string {
+  const code = String(value ?? "").trim();
+  if (!code) {
+    return "-";
+  }
+  const mapped = irccCountryOfIssueMap[code]?.[languageMode];
+  if (mapped) {
+    return languageMode === "zh" ? `${mapped}（${code}）` : `${mapped} (${code})`;
+  }
+  return languageMode === "zh" ? `未知签发国家/地区代码：${code}` : `Unknown country/region of issue code: ${code}`;
+}
+
+function getIrccDocumentStatusFields(item: Record<string, unknown>, languageMode: LanguageMode): Array<{ label: string; value: string; mono?: boolean }> {
+  const labels = languageMode === "zh"
+    ? {
+        applicant: "申请人",
+        documentType: "文件类型",
+        documentStatus: "文件状态",
+        documentNumber: "文件编号",
+        travelDocumentNumber: "旅行证件号",
+        countryOfIssue: "签发国家/地区",
+        expiryDate: "过期日期",
+        statusUpdatedDate: "状态更新时间",
+      }
+    : {
+        applicant: "Applicant",
+        documentType: "Document type",
+        documentStatus: "Document status",
+        documentNumber: "Document number",
+        travelDocumentNumber: "Travel document number",
+        countryOfIssue: "Country/region of issue",
+        expiryDate: "Expiry date",
+        statusUpdatedDate: "Status updated date",
+      };
+  const showExpiryDate = String(item.showNAExpiryDate ?? "").toUpperCase() !== "Y";
+  return [
+    { label: labels.documentType, value: formatIrccDocumentType(item.documentType, languageMode) },
+    { label: labels.documentStatus, value: formatIrccDocumentStatusCode(item.documentStatus, languageMode) },
+    ...(item.name ? [{ label: labels.applicant, value: String(item.name) }] : []),
+    ...(item.documentNumber ? [{ label: labels.documentNumber, value: maskSensitiveDocumentNumber(item.documentNumber), mono: true }] : []),
+    ...(item.travelDocumentNumber ? [{ label: labels.travelDocumentNumber, value: maskSensitiveDocumentNumber(item.travelDocumentNumber), mono: true }] : []),
+    ...(item.countryOfIssue ? [{ label: labels.countryOfIssue, value: formatIrccCountryOfIssue(item.countryOfIssue, languageMode) }] : []),
+    ...(item.expiryDate && showExpiryDate ? [{ label: labels.expiryDate, value: String(item.expiryDate), mono: true }] : []),
+    ...(item.statusUpdatedDate ? [{ label: labels.statusUpdatedDate, value: String(item.statusUpdatedDate), mono: true }] : []),
+  ];
 }
 
 function readIrccStatus(status: unknown, languageMode: LanguageMode): string {
@@ -4127,12 +4236,23 @@ function IrccCaseDetail(props: {
             <h2 className="subhead">{statusLabels.documentStatus}</h2>
             <span className="status-badge">{documentStatus.length}</span>
           </div>
-          <div className="timeline">
-            {documentStatus.map((item, index) => (
-              <div key={index} className="timeline-item">
-                <div className="timeline-desc">{JSON.stringify(item)}</div>
-              </div>
-            ))}
+          <div className="ircc-document-list">
+            {documentStatus.map((rawItem, index) => {
+              const item = rawItem && typeof rawItem === "object" ? rawItem as Record<string, unknown> : {};
+              const fields = getIrccDocumentStatusFields(item, props.languageMode);
+              return (
+                <div key={index} className="ircc-document-item">
+                  <div className="ircc-document-header">
+                    <div>
+                      <span className="ircc-document-kicker">{statusLabels.documentStatus}</span>
+                      <h3 className="ircc-document-title">{formatIrccDocumentType(item.documentType, props.languageMode)}</h3>
+                    </div>
+                    <span className="status-badge">{formatIrccDocumentStatusCode(item.documentStatus, props.languageMode)}</span>
+                  </div>
+                  <FieldSheet fields={fields} />
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

@@ -86,11 +86,18 @@ IRCC_RAW_APPLICANT_DIFF_PATTERN = re.compile(
     r"(\[\s*\{|\{\s*['\"]?(?:fullName|uci|appNumber|biometricNumber)['\"]?\s*:).*(?:->|-&gt;)",
     re.IGNORECASE,
 )
+IRCC_RAW_DOCUMENT_DIFF_PATTERN = re.compile(
+    r"(\[\s*\{|\{\s*['\"]?(?:documentNumber|travelDocumentNumber|documentStatus|documentType)['\"]?\s*:).*(?:->|-&gt;)",
+    re.IGNORECASE,
+)
 IRCC_LEGACY_STATUS_TIME_PATTERN = re.compile(r"，时间：(?=\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})")
 IRCC_MESSAGE_TAG_LABELS = {
     "Online.RECEIPT": "在线申请提交收据",
     "CorrespondenceSent": "IRCC 已发送信件",
 }
+IRCC_DOCUMENT_TYPE_LABELS: dict[str, str] = {}
+IRCC_DOCUMENT_STATUS_LABELS: dict[str, str] = {}
+IRCC_COUNTRY_OF_ISSUE_LABELS: dict[str, str] = {}
 
 # 这些 code/key 来自 IRCC Portal 当前前端 bundle（用户提供 HAR 中的 main-es2015）。
 # IRCC 未承诺它们是公开稳定 API；未知 code 仍会保留原始值显示。
@@ -412,6 +419,137 @@ def maskTail(value: Any, visible: int = 4) -> str:
     return f"{'*' * (len(text) - visible)}{text[-visible:]}"
 
 
+def formatIrccDocumentType(value: Any) -> str:
+    code = str(value or "").strip()
+    if not code:
+        return "-"
+    label = IRCC_DOCUMENT_TYPE_LABELS.get(code)
+    return f"{label}（{code}）" if label else f"未知文件类型：{code}"
+
+
+def formatIrccDocumentStatusCode(value: Any) -> str:
+    code = str(value or "").strip()
+    if not code:
+        return "-"
+    label = IRCC_DOCUMENT_STATUS_LABELS.get(code)
+    return f"{label}（{code}）" if label else f"未知文件状态：{code}"
+
+
+def formatIrccCountryOfIssue(value: Any) -> str:
+    code = str(value or "").strip()
+    if not code:
+        return "-"
+    label = IRCC_COUNTRY_OF_ISSUE_LABELS.get(code)
+    return f"{label}（{code}）" if label else f"未知签发国家/地区代码：{code}"
+
+
+def formatSensitiveDocumentNumber(value: Any) -> str:
+    masked = maskTail(value)
+    return masked or "-"
+
+
+def normalizeDocumentStatusItems(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def getDocumentStatusMatchKey(item: dict[str, Any], index: int) -> str:
+    for key in ("documentNumber", "travelDocumentNumber"):
+        value = item.get(key)
+        if value:
+            return f"{key}:{value}"
+    typeValue = item.get("documentType") or "unknown"
+    applicantName = item.get("name") or "unknown"
+    return f"fallback:{typeValue}:{applicantName}:{index}"
+
+
+def formatIrccDocumentStatusItem(item: dict[str, Any]) -> str:
+    parts = [
+        f"文件类型：{formatIrccDocumentType(item.get('documentType'))}",
+        f"文件状态：{formatIrccDocumentStatusCode(item.get('documentStatus'))}",
+    ]
+    if item.get("statusUpdatedDate"):
+        parts.append(f"状态更新时间：{item.get('statusUpdatedDate')}")
+    if item.get("expiryDate") and str(item.get("showNAExpiryDate") or "").upper() != "Y":
+        parts.append(f"过期日期：{item.get('expiryDate')}")
+    if item.get("countryOfIssue"):
+        parts.append(f"签发国家/地区：{formatIrccCountryOfIssue(item.get('countryOfIssue'))}")
+    if item.get("documentNumber"):
+        parts.append(f"文件编号：{formatSensitiveDocumentNumber(item.get('documentNumber'))}")
+    if item.get("travelDocumentNumber"):
+        parts.append(f"旅行证件号：{formatSensitiveDocumentNumber(item.get('travelDocumentNumber'))}")
+    return "；".join(parts)
+
+
+def summarizeDocumentStatuses(value: Any) -> list[str]:
+    items = normalizeDocumentStatusItems(value)
+    return [formatIrccDocumentStatusItem(item) for item in items]
+
+
+def formatDocumentStatusFieldValue(field: str, value: Any) -> str:
+    if field == "documentType":
+        return formatIrccDocumentType(value)
+    if field == "documentStatus":
+        return formatIrccDocumentStatusCode(value)
+    if field == "countryOfIssue":
+        return formatIrccCountryOfIssue(value)
+    if field in {"documentNumber", "travelDocumentNumber"}:
+        return formatSensitiveDocumentNumber(value)
+    if value in (None, ""):
+        return "-"
+    return str(value)
+
+
+def formatDocumentStatusChanges(previousValue: Any, currentValue: Any) -> list[str]:
+    previousItems = normalizeDocumentStatusItems(previousValue)
+    currentItems = normalizeDocumentStatusItems(currentValue)
+    previousByKey = {
+        getDocumentStatusMatchKey(item, index): item
+        for index, item in enumerate(previousItems)
+    }
+    currentByKey = {
+        getDocumentStatusMatchKey(item, index): item
+        for index, item in enumerate(currentItems)
+    }
+    fieldLabels = {
+        "documentType": "文件类型",
+        "documentStatus": "文件状态",
+        "expiryDate": "过期日期",
+        "statusUpdatedDate": "状态更新时间",
+        "travelDocumentNumber": "旅行证件号",
+        "countryOfIssue": "签发国家/地区",
+        "showNAExpiryDate": "过期日期显示",
+        "documentNumber": "文件编号",
+    }
+    lines: list[str] = []
+    for key, currentItem in currentByKey.items():
+        previousItem = previousByKey.get(key)
+        if previousItem is None:
+            lines.append(f"新增文件状态：{formatIrccDocumentStatusItem(currentItem)}。")
+            continue
+        fieldChanges: list[str] = []
+        for field, label in fieldLabels.items():
+            if stableHash(previousItem.get(field)) == stableHash(currentItem.get(field)):
+                continue
+            fieldChanges.append(
+                f"{label} 从 {formatDocumentStatusFieldValue(field, previousItem.get(field))} "
+                f"变为 {formatDocumentStatusFieldValue(field, currentItem.get(field))}"
+            )
+        if fieldChanges:
+            lines.append(f"文件状态已更新：{'；'.join(fieldChanges)}。")
+        elif stableHash(previousItem) != stableHash(currentItem):
+            lines.append(f"文件状态已更新：{formatIrccDocumentStatusItem(currentItem)}。")
+
+    for key, previousItem in previousByKey.items():
+        if key not in currentByKey:
+            lines.append(f"文件状态已移除：{formatIrccDocumentStatusItem(previousItem)}。")
+
+    if not lines and stableHash(previousItems) != stableHash(currentItems):
+        lines.append("文件状态已更新。")
+    return lines
+
+
 def formatBiometricChange(previousApplicant: dict[str, Any], currentApplicant: dict[str, Any]) -> list[str]:
     changes: list[str] = []
     previousNumber = previousApplicant.get("biometricNumber")
@@ -485,6 +623,9 @@ def sanitizeIrccChangeSummaryForDisplay(summary: str) -> str:
             continue
         if IRCC_RAW_APPLICANT_DIFF_PATTERN.search(line):
             cleanedLines.append("申请人信息已更新。")
+            continue
+        if IRCC_RAW_DOCUMENT_DIFF_PATTERN.search(line):
+            cleanedLines.append("文件状态已更新。")
             continue
         cleanedLines.append(IRCC_LEGACY_STATUS_TIME_PATTERN.sub("，IRCC Portal 原始时间：", line))
     return "\n".join(dict.fromkeys(cleanedLines))
@@ -642,6 +783,7 @@ def normalizeSnapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def summarizeSnapshot(snapshot: dict[str, Any]) -> str:
     normalized = normalizeSnapshot(snapshot)
+    documentStatusLines = summarizeDocumentStatuses(normalized.get("documentStatus"))
     lines = [
         f"总申请状态：{formatIrccValue(normalized.get('applicationStatus'))}",
         f"首页申请状态：{formatIrccValue(normalized.get('applicationInfoStatus'))}",
@@ -657,9 +799,12 @@ def summarizeSnapshot(snapshot: dict[str, Any]) -> str:
         f"预计完成日期：{formatIrccValue(normalized.get('estimatedCompletionDate'))}",
         f"预计剩余处理时间：{formatIrccValue(normalized.get('estimatedRemainingProcessingTime'))} {formatIrccValue(normalized.get('estimatedRemainingProcessingTimeUnitOfMeasure'))}",
         f"是否超过处理时间：{formatIrccValue(normalized.get('processingTimeExceeded'))}",
-        f"文件状态数量：{len(normalized.get('documentStatus') or []) if isinstance(normalized.get('documentStatus'), list) else 0}",
+        f"文件状态数量：{len(documentStatusLines)}",
         f"消息数量：{len(normalized.get('messages') or [])}",
     ]
+    if documentStatusLines:
+        lines.append("文件状态：")
+        lines.extend(f"- {line}" for line in documentStatusLines)
     return "\n".join(lines)
 
 
@@ -739,6 +884,8 @@ def buildChangeSummary(previous: dict[str, Any] | None, current: dict[str, Any])
             changes.extend(formatIrccMessageChanges(previousMessages, currentMessages))
         elif key == "listOfApplicants":
             changes.extend(formatApplicantChanges(previousValue, currentValue))
+        elif key == "documentStatus":
+            changes.extend(formatDocumentStatusChanges(previousValue, currentValue))
         else:
             changes.append(f"{label} 发生变化：{formatIrccValue(previousValue)} -> {formatIrccValue(currentValue)}。")
     return "\n".join(changes[:20]) if changes else "后台 Ghost update：快照发生变化，但七项状态、申请消息和申请人信息暂无可见变化。"

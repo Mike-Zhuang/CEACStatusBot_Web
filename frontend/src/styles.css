@@ -2056,6 +2056,48 @@ select:user-invalid:not(:focus) {
   overflow-wrap: anywhere;
 }
 
+.ircc-document-list {
+  display: grid;
+  gap: 18px;
+}
+
+.ircc-document-item {
+  display: grid;
+  gap: 14px;
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.ircc-document-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.ircc-document-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.ircc-document-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink-subtle);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.ircc-document-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 /* Admin */
 .admin-user-list {
   display: grid;
