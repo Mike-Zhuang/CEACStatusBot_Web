@@ -424,7 +424,7 @@ def formatIrccDocumentType(value: Any) -> str:
     if not code:
         return "-"
     label = IRCC_DOCUMENT_TYPE_LABELS.get(code)
-    return f"{label}（{code}）" if label else f"未知文件类型：{code}"
+    return f"{label}（{code}）" if label else code
 
 
 def formatIrccDocumentStatusCode(value: Any) -> str:
@@ -432,7 +432,7 @@ def formatIrccDocumentStatusCode(value: Any) -> str:
     if not code:
         return "-"
     label = IRCC_DOCUMENT_STATUS_LABELS.get(code)
-    return f"{label}（{code}）" if label else f"未知文件状态：{code}"
+    return f"{label}（{code}）" if label else code
 
 
 def formatIrccCountryOfIssue(value: Any) -> str:
@@ -440,12 +440,12 @@ def formatIrccCountryOfIssue(value: Any) -> str:
     if not code:
         return "-"
     label = IRCC_COUNTRY_OF_ISSUE_LABELS.get(code)
-    return f"{label}（{code}）" if label else f"未知签发国家/地区代码：{code}"
+    return f"{label}（{code}）" if label else code
 
 
-def formatSensitiveDocumentNumber(value: Any) -> str:
-    masked = maskTail(value)
-    return masked or "-"
+def formatIrccDocumentNumber(value: Any) -> str:
+    text = str(value or "").strip()
+    return text or "-"
 
 
 def normalizeDocumentStatusItems(value: Any) -> list[dict[str, Any]]:
@@ -476,9 +476,9 @@ def formatIrccDocumentStatusItem(item: dict[str, Any]) -> str:
     if item.get("countryOfIssue"):
         parts.append(f"签发国家/地区：{formatIrccCountryOfIssue(item.get('countryOfIssue'))}")
     if item.get("documentNumber"):
-        parts.append(f"文件编号：{formatSensitiveDocumentNumber(item.get('documentNumber'))}")
+        parts.append(f"文件编号：{formatIrccDocumentNumber(item.get('documentNumber'))}")
     if item.get("travelDocumentNumber"):
-        parts.append(f"旅行证件号：{formatSensitiveDocumentNumber(item.get('travelDocumentNumber'))}")
+        parts.append(f"旅行证件号：{formatIrccDocumentNumber(item.get('travelDocumentNumber'))}")
     return "；".join(parts)
 
 
@@ -495,7 +495,7 @@ def formatDocumentStatusFieldValue(field: str, value: Any) -> str:
     if field == "countryOfIssue":
         return formatIrccCountryOfIssue(value)
     if field in {"documentNumber", "travelDocumentNumber"}:
-        return formatSensitiveDocumentNumber(value)
+        return formatIrccDocumentNumber(value)
     if value in (None, ""):
         return "-"
     return str(value)

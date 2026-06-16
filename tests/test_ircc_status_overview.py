@@ -76,7 +76,7 @@ class IrccStatusOverviewTest(unittest.TestCase):
 
         self.assertEqual(stableHash(normalizeSnapshot(previous)), stableHash(normalizeSnapshot(current)))
 
-    def test_document_status_item_is_structured_and_masked(self) -> None:
+    def test_document_status_item_is_structured(self) -> None:
         item = {
             "name": "TEST APPLICANT",
             "documentType": "DSDT01",
@@ -91,13 +91,11 @@ class IrccStatusOverviewTest(unittest.TestCase):
 
         formatted = formatIrccDocumentStatusItem(item)
 
-        self.assertIn("未知文件类型：DSDT01", formatted)
-        self.assertIn("未知文件状态：DS1", formatted)
-        self.assertIn("未知签发国家/地区代码：202", formatted)
-        self.assertIn("******6789", formatted)
-        self.assertIn("******4321", formatted)
-        self.assertNotIn("D123456789", formatted)
-        self.assertNotIn("P987654321", formatted)
+        self.assertIn("文件类型：DSDT01", formatted)
+        self.assertIn("文件状态：DS1", formatted)
+        self.assertIn("签发国家/地区：202", formatted)
+        self.assertIn("D123456789", formatted)
+        self.assertIn("P987654321", formatted)
 
     def test_document_status_change_summary_does_not_emit_raw_json(self) -> None:
         previous = buildSnapshot(documentStatus=[])
@@ -120,10 +118,10 @@ class IrccStatusOverviewTest(unittest.TestCase):
         summary = buildChangeSummary(previous, current)
 
         self.assertIn("新增文件状态", summary)
-        self.assertIn("未知文件状态：DS1", summary)
+        self.assertIn("文件状态：DS1", summary)
         self.assertNotIn("[{", summary)
-        self.assertNotIn("D123456789", summary)
-        self.assertNotIn("P987654321", summary)
+        self.assertIn("D123456789", summary)
+        self.assertIn("P987654321", summary)
 
     def test_snapshot_summary_includes_document_status_details(self) -> None:
         snapshot = buildSnapshot(
@@ -141,8 +139,8 @@ class IrccStatusOverviewTest(unittest.TestCase):
 
         self.assertIn("文件状态数量：1", summary)
         self.assertIn("文件状态：", summary)
-        self.assertIn("未知文件类型：DSDT01", summary)
-        self.assertNotIn("D123456789", summary)
+        self.assertIn("文件类型：DSDT01", summary)
+        self.assertIn("D123456789", summary)
 
 
 if __name__ == "__main__":

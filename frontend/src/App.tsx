@@ -3737,15 +3737,9 @@ function formatIrccMessageTag(value: unknown, languageMode: LanguageMode): strin
   return irccMessageTagMap[tag]?.[languageMode] ?? tag;
 }
 
-function maskSensitiveDocumentNumber(value: unknown): string {
+function formatIrccDocumentNumber(value: unknown): string {
   const text = String(value ?? "").trim();
-  if (!text) {
-    return "-";
-  }
-  if (text.length <= 4) {
-    return "*".repeat(text.length);
-  }
-  return `${"*".repeat(text.length - 4)}${text.slice(-4)}`;
+  return text || "-";
 }
 
 function formatIrccDocumentType(value: unknown, languageMode: LanguageMode): string {
@@ -3757,7 +3751,7 @@ function formatIrccDocumentType(value: unknown, languageMode: LanguageMode): str
   if (mapped) {
     return languageMode === "zh" ? `${mapped}（${code}）` : `${mapped} (${code})`;
   }
-  return languageMode === "zh" ? `未知文件类型：${code}` : `Unknown document type: ${code}`;
+  return code;
 }
 
 function formatIrccDocumentStatusCode(value: unknown, languageMode: LanguageMode): string {
@@ -3769,7 +3763,7 @@ function formatIrccDocumentStatusCode(value: unknown, languageMode: LanguageMode
   if (mapped) {
     return languageMode === "zh" ? `${mapped}（${code}）` : `${mapped} (${code})`;
   }
-  return languageMode === "zh" ? `未知文件状态：${code}` : `Unknown document status: ${code}`;
+  return code;
 }
 
 function formatIrccCountryOfIssue(value: unknown, languageMode: LanguageMode): string {
@@ -3781,7 +3775,7 @@ function formatIrccCountryOfIssue(value: unknown, languageMode: LanguageMode): s
   if (mapped) {
     return languageMode === "zh" ? `${mapped}（${code}）` : `${mapped} (${code})`;
   }
-  return languageMode === "zh" ? `未知签发国家/地区代码：${code}` : `Unknown country/region of issue code: ${code}`;
+  return code;
 }
 
 function getIrccDocumentStatusFields(item: Record<string, unknown>, languageMode: LanguageMode): Array<{ label: string; value: string; mono?: boolean }> {
@@ -3811,8 +3805,8 @@ function getIrccDocumentStatusFields(item: Record<string, unknown>, languageMode
     { label: labels.documentType, value: formatIrccDocumentType(item.documentType, languageMode) },
     { label: labels.documentStatus, value: formatIrccDocumentStatusCode(item.documentStatus, languageMode) },
     ...(item.name ? [{ label: labels.applicant, value: String(item.name) }] : []),
-    ...(item.documentNumber ? [{ label: labels.documentNumber, value: maskSensitiveDocumentNumber(item.documentNumber), mono: true }] : []),
-    ...(item.travelDocumentNumber ? [{ label: labels.travelDocumentNumber, value: maskSensitiveDocumentNumber(item.travelDocumentNumber), mono: true }] : []),
+    ...(item.documentNumber ? [{ label: labels.documentNumber, value: formatIrccDocumentNumber(item.documentNumber), mono: true }] : []),
+    ...(item.travelDocumentNumber ? [{ label: labels.travelDocumentNumber, value: formatIrccDocumentNumber(item.travelDocumentNumber), mono: true }] : []),
     ...(item.countryOfIssue ? [{ label: labels.countryOfIssue, value: formatIrccCountryOfIssue(item.countryOfIssue, languageMode) }] : []),
     ...(item.expiryDate && showExpiryDate ? [{ label: labels.expiryDate, value: String(item.expiryDate), mono: true }] : []),
     ...(item.statusUpdatedDate ? [{ label: labels.statusUpdatedDate, value: String(item.statusUpdatedDate), mono: true }] : []),
@@ -4244,8 +4238,8 @@ function IrccCaseDetail(props: {
                 <div key={index} className="ircc-document-item">
                   <div className="ircc-document-header">
                     <div>
-                      <span className="ircc-document-kicker">{statusLabels.documentStatus}</span>
-                      <h3 className="ircc-document-title">{formatIrccDocumentType(item.documentType, props.languageMode)}</h3>
+                      <span className="ircc-document-kicker">{formatIrccDocumentType(item.documentType, props.languageMode)}</span>
+                      <h3 className="ircc-document-title">{props.languageMode === "zh" ? `文件 ${index + 1}` : `Document ${index + 1}`}</h3>
                     </div>
                     <span className="status-badge">{formatIrccDocumentStatusCode(item.documentStatus, props.languageMode)}</span>
                   </div>

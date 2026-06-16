@@ -194,7 +194,7 @@ def renderEmailBlocks(body: str) -> str:
                 else:
                     contentHtml = renderTextLines(nextBlock, emphasized=len(nextBlock) <= 2)
                 index += 1
-            titleTone = "highlight" if any(keyword in title for keyword in ("变化", "摘要", "状态", "可预约", "决定")) else "neutral"
+            titleTone = "highlight" if any(keyword in title for keyword in ("变化", "摘要", "可预约", "决定")) else "neutral"
             htmlParts.append(renderSection(title, contentHtml, tone=titleTone))
         elif all(isKeyValueLine(line) for line in block):
             htmlParts.append(f'<section style="margin:16px 0 0;">{renderKeyValueTable(block)}</section>')
