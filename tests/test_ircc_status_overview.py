@@ -1,8 +1,10 @@
 import unittest
+from datetime import UTC, datetime
 
 from CEACStatusBot.web.ircc_portal_service import (
     buildChangeSummary,
     buildIrccStatusOverview,
+    computeNextIrccCheckAt,
     formatIrccDocumentStatusItem,
     normalizeSnapshot,
     stableHash,
@@ -50,6 +52,19 @@ class IrccStatusOverviewTest(unittest.TestCase):
         self.assertEqual(overview["tone"], "approved")
         self.assertEqual(overview["latestUpdate"]["field"], "finalDecision")
         self.assertEqual(overview["latestUpdate"]["timeStamp"], "05/28/2026")
+
+    def test_fd2_uses_issued_equivalent_tone(self) -> None:
+        overview = buildIrccStatusOverview(buildSnapshot(applicationStatus="A2", finalDecision={"status": "FD2", "timeStamp": "06/16/2026"}))
+
+        self.assertEqual(overview["headlineCode"], "FD2")
+        self.assertEqual(overview["headlineText"], "已获批")
+        self.assertEqual(overview["tone"], "issued")
+
+    def test_fd2_next_check_is_daily(self) -> None:
+        base = datetime(2026, 6, 16, 10, 25, tzinfo=UTC)
+        nextCheck = datetime.fromisoformat(computeNextIrccCheckAt(base, "FD2"))
+
+        self.assertEqual(nextCheck.date().isoformat(), "2026-06-17")
 
     def test_later_workflow_stage_wins_when_timestamps_match(self) -> None:
         overview = buildIrccStatusOverview(

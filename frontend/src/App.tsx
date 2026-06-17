@@ -100,7 +100,7 @@ interface IrccCase {
   updatedAt: string;
 }
 
-type IrccStatusTone = "pending" | "approved" | "negative" | "closed" | "unknown";
+type IrccStatusTone = "pending" | "approved" | "issued" | "negative" | "closed" | "unknown";
 
 interface IrccLatestUpdate {
   field: string;
@@ -3664,7 +3664,7 @@ function formatIrccCompactHeadline(overview: IrccStatusOverview | null | undefin
 }
 
 function getIrccToneBadgeClass(tone: IrccStatusTone | undefined, extraClass = ""): string {
-  const semanticClass = tone === "approved" ? "success" : tone === "negative" ? "error" : "";
+  const semanticClass = tone === "issued" ? "status-issued" : tone === "approved" ? "success" : tone === "negative" ? "error" : "";
   return ["status-badge", "ircc-headline-badge", semanticClass, extraClass].filter(Boolean).join(" ");
 }
 
@@ -4094,7 +4094,7 @@ function IrccCaseDetail(props: {
               {statusOverview ? formatIrccHeadline(statusOverview, props.languageMode) : props.t("noStatus")}
             </span>
           )}
-          tone={statusOverview?.tone === "approved" ? "approved" : statusOverview?.tone === "negative" ? "negative" : statusOverview?.tone === "pending" ? "pending" : statusOverview?.tone === "unknown" ? "unknown" : "default"}
+          tone={statusOverview?.tone === "issued" ? "issued" : statusOverview?.tone === "approved" ? "approved" : statusOverview?.tone === "negative" ? "negative" : statusOverview?.tone === "pending" ? "pending" : statusOverview?.tone === "unknown" ? "unknown" : "default"}
           meta={[
             { label: props.t("lastCheckedAt"), value: formatTime(props.targetCase.lastCheckedAt, props.languageMode) },
             { label: props.t("nextCheckAt"), value: formatTime(props.targetCase.nextCheckAt, props.languageMode) },

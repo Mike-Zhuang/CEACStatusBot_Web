@@ -12,17 +12,20 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .case_service import PREMIUM_CASE_LIMIT, STANDARD_CASE_LIMIT, nextProfileSortOrder, upsertSmtpConfig
+from .case_service import PREMIUM_CASE_LIMIT, STANDARD_CASE_LIMIT, computeNextDailyCheckAt, nextProfileSortOrder, upsertSmtpConfig
 from .database import getConnection, utcNowIso
 from .mailer import (
     buildEmailHtml,
+    buildSupportFooterPlain,
     formatCaseEmailTime,
     formatEmailTime,
     formatEmailTextTimes,
+    getSupportImagePath,
     getSystemSmtpConfig,
     getUserEmailTimezone,
     recordEmailDelivery,
     sendEmail,
+    SUPPORT_IMAGE_CONTENT_ID,
 )
 from .schemas import IrccCaseInput, IrccCasePatch, IrccDiscoverRequest
 from .secrets import decryptIfNeeded, decryptSecret, encryptSecret
@@ -227,6 +230,7 @@ IRCC_STATUS_STAGE_FIELDS = (
     ("finalDecision", "最终决定"),
 )
 IRCC_NON_SUBSTANTIVE_FINAL_DECISION_CODES = {"", "FD0", "FD1", "FD24"}
+IRCC_ISSUED_EQUIVALENT_CODES = {"FD2"}
 IRCC_APPROVED_CODES = {"FD2", "FD6", "FD9", "FD13", "FD14", "FD17"}
 IRCC_NEGATIVE_CODES = {"FD3", "FD7", "FD10", "FD15", "FD16", "FD20", "FD21", "FD22"}
 IRCC_CLOSED_CODES = {"FD4", "FD5", "FD8", "FD11", "FD12", "FD18"}
@@ -267,8 +271,20 @@ def shouldStopIrccAutomaticQuery(errorMessage: str) -> bool:
     return "登录" in text or "MFA" in text or "鉴权" in text or "token" in lowered
 
 
-def computeNextIrccCheckAt(base: datetime | None = None) -> str:
+def isIrccIssuedEquivalentCode(code: Any) -> bool:
+    return str(code or "").strip().upper() in IRCC_ISSUED_EQUIVALENT_CODES
+
+
+def getIrccHeadlineCode(snapshot: dict[str, Any] | None) -> str:
+    if not snapshot:
+        return ""
+    return str(buildIrccStatusOverview(snapshot).get("headlineCode") or "")
+
+
+def computeNextIrccCheckAt(base: datetime | None = None, headlineCode: Any = None) -> str:
     base = base or datetime.now(UTC)
+    if isIrccIssuedEquivalentCode(headlineCode):
+        return computeNextDailyCheckAt(base)
     nextHour = (base + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
     return (nextHour + timedelta(minutes=random.randint(0, 59))).isoformat()
 
@@ -327,8 +343,17 @@ def parseIrccStatusTimestamp(value: Any) -> datetime | None:
     return None
 
 
+def parseIrccIso(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def getIrccHeadlineTone(code: Any) -> str:
     text = str(code or "")
+    if text in IRCC_ISSUED_EQUIVALENT_CODES:
+        return "issued"
     if text in IRCC_APPROVED_CODES:
         return "approved"
     if text in IRCC_NEGATIVE_CODES:
@@ -408,6 +433,12 @@ def hasIrccHeadlineChanged(previous: dict[str, Any] | None, current: dict[str, A
     if not previous:
         return False
     return buildIrccStatusOverview(previous)["headlineCode"] != buildIrccStatusOverview(current)["headlineCode"]
+
+
+def hasIrccIssuedEquivalentHeadlineChanged(previous: dict[str, Any] | None, current: dict[str, Any]) -> bool:
+    previousCode = getIrccHeadlineCode(previous)
+    currentCode = getIrccHeadlineCode(current)
+    return previousCode != currentCode and isIrccIssuedEquivalentCode(currentCode)
 
 
 def maskTail(value: Any, visible: int = 4) -> str:
@@ -1464,7 +1495,15 @@ def deleteIrccCase(caseId: int, userId: int) -> bool:
         return cursor.rowcount > 0
 
 
-def sendIrccNotification(case: dict[str, Any], smtpConfig: dict[str, Any] | None, subject: str, body: str, connection: Any | None = None) -> None:
+def sendIrccNotification(
+    case: dict[str, Any],
+    smtpConfig: dict[str, Any] | None,
+    subject: str,
+    body: str,
+    connection: Any | None = None,
+    *,
+    includeSupport: bool = False,
+) -> None:
     config = None
     if case["sender_mode"] == "custom" and smtpConfig:
         config = {
@@ -1486,6 +1525,9 @@ def sendIrccNotification(case: dict[str, Any], smtpConfig: dict[str, Any] | None
     if not config["fromEmail"] or not config["password"]:
         print(f"[mail] IRCC email is not configured. Subject: {subject}, To: {case['receive_email']}")
         return
+    inlineImages = {SUPPORT_IMAGE_CONTENT_ID: getSupportImagePath()} if includeSupport else None
+    plainBody = body + (buildSupportFooterPlain() if includeSupport else "")
+    htmlBody = buildEmailHtml(body, includeSupport=includeSupport)
     sendEmail(
         fromEmail=config["fromEmail"],
         toEmail=case["receive_email"],
@@ -1494,8 +1536,9 @@ def sendIrccNotification(case: dict[str, Any], smtpConfig: dict[str, Any] | None
         port=config["port"],
         useSsl=config["useSsl"],
         subject=subject,
-        body=body,
-        htmlBody=buildEmailHtml(body),
+        body=plainBody,
+        htmlBody=htmlBody,
+        inlineImages=inlineImages,
     )
     recordEmailDelivery(
         userId=int(case["user_id"]),
@@ -1503,9 +1546,128 @@ def sendIrccNotification(case: dict[str, Any], smtpConfig: dict[str, Any] | None
         emailType="ircc_status",
         recipient=case["receive_email"],
         subject=subject,
-        body=body,
+        body=plainBody,
         connection=connection,
     )
+
+
+def sendIrccIssuedAutoStopNotification(
+    case: dict[str, Any],
+    smtpConfig: dict[str, Any] | None,
+    issuedAt: str,
+    connection: Any | None = None,
+) -> None:
+    subject = f"[IRCC Alpha] {case['application_number'] or case['app_id']} 已自动停止查询"
+    issuedTime = formatCaseEmailTime(case, issuedAt, connection)
+    body = "\n".join(
+        [
+            "IRCC Portal Alpha 监控检测到该申请已保持获批状态一段时间。",
+            "",
+            f"档案：{case['display_name']}",
+            f"Application number：{case['application_number'] or '-'}",
+            f"appId：{case['app_id']}",
+            f"申请人：{case['principal_applicant'] or '-'}",
+            "当前概括状态：已获批（FD2）",
+            f"首次记录 FD2 时间：{issuedTime}",
+            "",
+            "该档案进入 FD2 已超过一周，且你尚未在站内停止自动查询。",
+            "系统已按策略自动关闭该 IRCC 档案的自动查询，避免继续请求 IRCC Portal。",
+            "你仍然可以登录网站，在档案详情页手动执行立即查询。",
+        ],
+    )
+    sendIrccNotification(case, smtpConfig, subject, body, connection, includeSupport=True)
+
+
+def getFirstIrccIssuedEquivalentAt(caseId: int) -> datetime | None:
+    with getConnection() as connection:
+        rows = connection.execute(
+            """
+            SELECT raw_payload, fetched_at
+            FROM ircc_status_history
+            WHERE case_id = ?
+            ORDER BY fetched_at ASC, id ASC
+            """,
+            (caseId,),
+        ).fetchall()
+    for row in rows:
+        try:
+            snapshot = json.loads(decryptIfNeeded(row["raw_payload"]) or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isIrccIssuedEquivalentCode(getIrccHeadlineCode(snapshot)):
+            return parseIrccIso(str(row["fetched_at"]))
+    return None
+
+
+def stopIrccIssuedEquivalentCaseIfExpired(caseId: int, now: datetime, issuedAt: datetime | None = None) -> bool:
+    with getConnection() as connection:
+        case = connection.execute(
+            """
+            SELECT c.*, a.portal_email_encrypted
+            FROM ircc_cases c
+            JOIN ircc_portal_accounts a ON a.id = c.account_id
+            WHERE c.id = ? AND c.is_enabled = 1
+            """,
+            (caseId,),
+        ).fetchone()
+        if not case:
+            return False
+        latest = connection.execute(
+            """
+            SELECT raw_payload
+            FROM ircc_status_history
+            WHERE case_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (caseId,),
+        ).fetchone()
+        if not latest:
+            return False
+        try:
+            snapshot = json.loads(decryptIfNeeded(latest["raw_payload"]) or "{}")
+        except (json.JSONDecodeError, TypeError):
+            return False
+        if not isIrccIssuedEquivalentCode(getIrccHeadlineCode(snapshot)):
+            return False
+        issuedAt = issuedAt or getFirstIrccIssuedEquivalentAt(caseId)
+        if not issuedAt or now - issuedAt < timedelta(days=7):
+            return False
+        connection.execute(
+            """
+            UPDATE ircc_cases
+            SET is_enabled = 0, next_check_at = NULL, updated_at = ?
+            WHERE id = ?
+            """,
+            (now.isoformat(), caseId),
+        )
+        smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (case["user_id"],)).fetchone()
+
+    caseDict = dict(case)
+    caseDict["receive_email"] = decryptIfNeeded(caseDict["receive_email"]) or ""
+    try:
+        sendIrccIssuedAutoStopNotification(caseDict, smtpConfig, issuedAt.isoformat())
+    except Exception as exc:
+        print(f"[scheduler] IRCC FD2 auto-stop notification failed for case {caseId}: {exc}")
+    return True
+
+
+def handleIrccIssuedEquivalentDueCase(caseId: int, now: datetime) -> bool:
+    issuedAt = getFirstIrccIssuedEquivalentAt(caseId)
+    if not issuedAt:
+        return False
+    if now - issuedAt >= timedelta(days=7):
+        return stopIrccIssuedEquivalentCaseIfExpired(caseId, now, issuedAt)
+    with getConnection() as connection:
+        connection.execute(
+            """
+            UPDATE ircc_cases
+            SET next_check_at = ?, updated_at = ?
+            WHERE id = ? AND is_enabled = 1
+            """,
+            (computeNextIrccCheckAt(now, "FD2"), now.isoformat(), caseId),
+        )
+    return True
 
 
 def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[str, Any]:
@@ -1584,6 +1746,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                             if hasIrccHeadlineChanged(previousSnapshot, snapshot)
                             else irccEmailSubjectAction(changeType)
                         )
+                        includeSupport = hasIrccIssuedEquivalentHeadlineChanged(previousSnapshot, snapshot)
                         subject = f"[IRCC Alpha] {row['application_number'] or row['app_id']} {subjectAction}"
                         body = "\n".join(
                             [
@@ -1606,7 +1769,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                                 formatEmailTextTimes(summarizeSnapshot(snapshot), emailTimezone),
                             ],
                         )
-                        sendIrccNotification(case, smtpConfig, subject, body, connection)
+                        sendIrccNotification(case, smtpConfig, subject, body, connection, includeSupport=includeSupport)
                         notificationSent = True
                     except Exception as exc:
                         errorMessage = f"Notification failed: {exc}"
@@ -1644,7 +1807,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                 """,
                 (
                     finishedIso,
-                    computeNextIrccCheckAt(finished) if isEnabledNow else None,
+                    computeNextIrccCheckAt(finished, getIrccHeadlineCode(snapshot)) if isEnabledNow else None,
                     triggerType,
                     snapshotHash,
                     summarizeSnapshotBrief(snapshot),
@@ -1771,12 +1934,20 @@ def enqueueIrccCaseQuery(caseId: int, triggerType: str, userId: int | None = Non
 
 
 def enqueueDueIrccCases(limit: int = 20) -> list[dict[str, Any]]:
-    nowIso = datetime.now(UTC).replace(microsecond=0).isoformat()
+    now = datetime.now(UTC).replace(microsecond=0)
+    nowIso = now.isoformat()
     queued: list[dict[str, Any]] = []
     with getConnection() as connection:
         rows = connection.execute(
             """
-            SELECT id
+            SELECT c.id,
+                   (
+                       SELECT h.raw_payload
+                       FROM ircc_status_history h
+                       WHERE h.case_id = c.id
+                       ORDER BY h.id DESC
+                       LIMIT 1
+                   ) AS latest_raw_payload
             FROM ircc_cases c
             WHERE c.is_enabled = 1
               AND c.next_check_at IS NOT NULL
@@ -1792,6 +1963,15 @@ def enqueueDueIrccCases(limit: int = 20) -> list[dict[str, Any]]:
             (nowIso, limit),
         ).fetchall()
     for row in rows:
+        latestPayload = decryptIfNeeded(row["latest_raw_payload"] or "") or ""
+        latestSnapshot = {}
+        if latestPayload:
+            try:
+                latestSnapshot = json.loads(latestPayload)
+            except json.JSONDecodeError:
+                latestSnapshot = {}
+        if isIrccIssuedEquivalentCode(getIrccHeadlineCode(latestSnapshot)) and handleIrccIssuedEquivalentDueCase(int(row["id"]), now):
+            continue
         job = enqueueIrccCaseQuery(int(row["id"]), "ircc_automatic")
         if job:
             queued.append(job)
@@ -1954,7 +2134,13 @@ def sendCurrentIrccEmail(caseId: int, userId: int | None = None) -> dict[str, An
         ],
     )
     try:
-        sendIrccNotification(case, smtpConfig, f"[IRCC Alpha] {case['display_name']} 测试邮件", body)
+        sendIrccNotification(
+            case,
+            smtpConfig,
+            f"[IRCC Alpha] {case['display_name']} 测试邮件",
+            body,
+            includeSupport=isIrccIssuedEquivalentCode(getIrccHeadlineCode(snapshot)),
+        )
     except Exception as exc:
         return {"success": False, "error": str(exc)}
     return {"success": True, "error": ""}
