@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from cryptography.hazmat.primitives import hashes
 
 from .case_service import PREMIUM_CASE_LIMIT, STANDARD_CASE_LIMIT, computeNextDailyCheckAt, nextProfileSortOrder, upsertSmtpConfig
 from .database import getConnection, utcNowIso
@@ -925,8 +926,9 @@ def buildChangeSummary(previous: dict[str, Any] | None, current: dict[str, Any])
 def hashSha256(value: bytes | str) -> bytes:
     raw = value.encode() if isinstance(value, str) else value
     # AWS Cognito SRP 要求对登录挑战参数做 SHA-256 协议计算；这里不是密码存储。
-    # codeql[py/weak-sensitive-data-hashing]
-    return hashlib.sha256(raw).digest()
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(raw)
+    return digest.finalize()
 
 
 def hexHash(value: bytes | str) -> int:
