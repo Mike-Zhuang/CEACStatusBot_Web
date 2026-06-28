@@ -899,7 +899,7 @@ def apiTestEmail(caseId: int, user: dict = Depends(currentUserDependency)) -> di
     payload = sendCurrentStatusEmail(caseId, int(user["id"]))
     if not payload["success"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="测试邮件发送失败，请检查发信设置。")
-    return payload
+    return {"success": True}
 
 
 @app.get("/api/cases/{caseId}/passport-slot-monitor")
@@ -956,7 +956,7 @@ def apiTestPassportSlotMonitorEmail(caseId: int, user: dict = Depends(currentUse
     payload = sendCurrentPassportSlotEmail(caseId, int(user["id"]))
     if not payload["success"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="护照预约测试邮件发送失败，请检查发信设置。")
-    return payload
+    return {"success": True}
 
 
 @app.post("/api/ircc/applications/discover")
@@ -1031,7 +1031,7 @@ def apiTestIrccEmail(caseId: int, user: dict = Depends(currentUserDependency)) -
     payload = sendCurrentIrccEmail(caseId, int(user["id"]))
     if not payload["success"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="IRCC 测试邮件发送失败，请检查发信设置。")
-    return payload
+    return {"success": True}
 
 
 @app.get("/api/ircc/query-jobs/{jobId}")
@@ -1102,7 +1102,7 @@ def apiTestKoreaEmail(caseId: int, user: dict = Depends(currentUserDependency)) 
     payload = sendCurrentKoreaEmail(caseId, int(user["id"]))
     if not payload["success"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="韩国签证测试邮件发送失败，请检查发信设置。")
-    return payload
+    return {"success": True}
 
 
 @app.get("/api/korea/query-jobs/{jobId}")

@@ -925,7 +925,8 @@ def buildChangeSummary(previous: dict[str, Any] | None, current: dict[str, Any])
 def hashSha256(value: bytes | str) -> bytes:
     raw = value.encode() if isinstance(value, str) else value
     # AWS Cognito SRP 要求对登录挑战参数做 SHA-256 协议计算；这里不是密码存储。
-    return hashlib.sha256(raw).digest()  # lgtm[py/weak-sensitive-data-hashing]
+    # codeql[py/weak-sensitive-data-hashing]
+    return hashlib.sha256(raw).digest()
 
 
 def hexHash(value: bytes | str) -> int:
