@@ -13,11 +13,11 @@ dependencies = [
     "apscheduler>=3.11.0",
     "beautifulsoup4>=4.15.0",
     "cryptography>=49.0.0",
-    "fastapi>=0.136.3",
+    "fastapi>=0.138.1",
     "httpx>=0.28.0",
     "lxml>=6.1.0",
     "numpy>=2.4.6",
-    "onnxruntime>=1.26.0",
+    "onnxruntime>=1.27.0",
     "pillow>=12.2.0",
     "pydantic[email]>=2.13.4",
     "python-dotenv>=1.2.2",
@@ -27,11 +27,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3.0",
+    "pytest>=9.1.1",
     "ruff>=0.15.17",
 ]
 audit = [
-    "pip-audit>=2.9.0",
+    "pip-audit>=2.10.1",
 ]
 
 [tool.uv]
