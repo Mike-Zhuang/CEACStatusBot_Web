@@ -898,7 +898,7 @@ def apiTestEmail(caseId: int, user: dict = Depends(currentUserDependency)) -> di
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="签证档案不存在")
     payload = sendCurrentStatusEmail(caseId, int(user["id"]))
     if not payload["success"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=payload["error"])
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="测试邮件发送失败，请检查发信设置。")
     return payload
 
 
@@ -955,7 +955,7 @@ def apiTestPassportSlotMonitor(caseId: int, user: dict = Depends(currentUserDepe
 def apiTestPassportSlotMonitorEmail(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
     payload = sendCurrentPassportSlotEmail(caseId, int(user["id"]))
     if not payload["success"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=payload["error"])
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="护照预约测试邮件发送失败，请检查发信设置。")
     return payload
 
 
@@ -966,7 +966,7 @@ def apiDiscoverIrccApplications(payload: IrccDiscoverRequest, user: dict = Depen
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="IRCC 登录或发现申请失败，请检查账号密码后重试。") from exc
 
 
 @app.get("/api/ircc/cases")
@@ -987,7 +987,7 @@ def apiCreateIrccCase(payload: IrccCaseInput, user: dict = Depends(currentUserDe
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="IRCC 档案保存失败，请稍后重试或联系管理员。") from exc
 
 
 @app.patch("/api/ircc/cases/{caseId}")
@@ -997,7 +997,7 @@ def apiPatchIrccCase(caseId: int, payload: IrccCasePatch, user: dict = Depends(c
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="IRCC 档案更新失败，请稍后重试或联系管理员。") from exc
     if not case:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IRCC 档案不存在")
     return {"case": case}
@@ -1030,7 +1030,7 @@ def apiTestIrccQuery(caseId: int, user: dict = Depends(currentUserDependency)) -
 def apiTestIrccEmail(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
     payload = sendCurrentIrccEmail(caseId, int(user["id"]))
     if not payload["success"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=payload["error"])
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="IRCC 测试邮件发送失败，请检查发信设置。")
     return payload
 
 
@@ -1060,7 +1060,7 @@ def apiCreateKoreaCase(payload: KoreaCaseInput, user: dict = Depends(currentUser
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="韩国签证档案保存失败，请稍后重试或联系管理员。") from exc
 
 
 @app.patch("/api/korea/cases/{caseId}")
@@ -1101,7 +1101,7 @@ def apiTestKoreaQuery(caseId: int, user: dict = Depends(currentUserDependency)) 
 def apiTestKoreaEmail(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
     payload = sendCurrentKoreaEmail(caseId, int(user["id"]))
     if not payload["success"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=payload["error"])
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="韩国签证测试邮件发送失败，请检查发信设置。")
     return payload
 
 

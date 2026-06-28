@@ -924,7 +924,8 @@ def buildChangeSummary(previous: dict[str, Any] | None, current: dict[str, Any])
 
 def hashSha256(value: bytes | str) -> bytes:
     raw = value.encode() if isinstance(value, str) else value
-    return hashlib.sha256(raw).digest()
+    # AWS Cognito SRP 要求对登录挑战参数做 SHA-256 协议计算；这里不是密码存储。
+    return hashlib.sha256(raw).digest()  # lgtm[py/weak-sensitive-data-hashing]
 
 
 def hexHash(value: bytes | str) -> int:
@@ -1523,7 +1524,7 @@ def sendIrccNotification(
             "useSsl": bool(systemConfig["useSsl"]),
         }
     if not config["fromEmail"] or not config["password"]:
-        print(f"[mail] IRCC email is not configured. Subject: {subject}, To: {case['receive_email']}")
+        print("[mail] IRCC email is not configured.")
         return
     inlineImages = {SUPPORT_IMAGE_CONTENT_ID: getSupportImagePath()} if includeSupport else None
     plainBody = body + (buildSupportFooterPlain() if includeSupport else "")

@@ -298,7 +298,7 @@ def sendEmail(
 def sendSystemEmail(toEmail: str, subject: str, body: str, htmlBody: str | None = None, inlineImages: dict[str, Path] | None = None) -> None:
     config = getSystemSmtpConfig()
     if not config["fromEmail"] or not config["password"]:
-        print(f"[mail] System email is not configured. Subject: {subject}, To: {toEmail}")
+        print("[mail] System email is not configured.")
         return
     renderedHtmlBody = htmlBody or buildEmailHtml(body)
     sendEmail(

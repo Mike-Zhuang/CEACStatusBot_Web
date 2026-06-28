@@ -427,8 +427,8 @@ def main() -> int:
     print("UI review database ready.")
     print(f"Database: {DATABASE_FILE}")
     print(f"Credential key: {KEY_FILE}")
-    print(f"Admin: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
-    print(f"User:  {USER_EMAIL} / {USER_PASSWORD}")
+    print(f"Admin: {ADMIN_EMAIL} / <seed password hidden>")
+    print(f"User:  {USER_EMAIL} / <seed password hidden>")
     return 0
 
 

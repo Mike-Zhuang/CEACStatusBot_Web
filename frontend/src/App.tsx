@@ -798,10 +798,7 @@ const translations = {
     refresh: "Refresh",
     register: "Register",
     registerAction: "Create account",
-    rememberLogin: "Remember email and password",
     rememberAccount: "Remember email",
-    rememberPassword: "Remember password",
-    rememberPasswordWarning: "Only use this on a private device. The password is stored in this browser.",
     resetAction: "Reset password",
     resetCodeSent: "If this email exists, a reset code has been sent.",
     resetPassword: "Reset password",
@@ -1085,10 +1082,7 @@ const translations = {
     refresh: "刷新数据",
     register: "注册",
     registerAction: "创建账号",
-    rememberLogin: "记住账号和密码",
     rememberAccount: "记住账号",
-    rememberPassword: "记住密码",
-    rememberPasswordWarning: "仅建议在私人设备使用；密码会保存在当前浏览器本地。",
     resetAction: "重置密码",
     resetCodeSent: "如果该邮箱存在，重置验证码已发送。",
     resetPassword: "重置密码",
@@ -1500,14 +1494,19 @@ function isPassportSlotReadyStatus(status: string | null | undefined): boolean {
   return tone === "approved" || tone === "issued";
 }
 
-function getRememberedCredentials(): { email: string; password: string; rememberAccount: boolean; rememberPassword: boolean } {
-  const rememberPassword = localStorage.getItem("rememberLogin") === "true" || localStorage.getItem("rememberPassword") === "true";
-  const rememberAccount = rememberPassword || localStorage.getItem("rememberAccount") !== "false";
+function clearLegacyRememberedPassword(): void {
+  localStorage.removeItem("rememberLogin");
+  localStorage.removeItem("rememberPassword");
+  localStorage.removeItem("rememberedPassword");
+}
+
+function getRememberedCredentials(): { email: string; password: string; rememberAccount: boolean } {
+  clearLegacyRememberedPassword();
+  const rememberAccount = localStorage.getItem("rememberAccount") !== "false";
   return {
     email: rememberAccount ? localStorage.getItem("rememberedEmail") ?? "" : "",
-    password: rememberPassword ? localStorage.getItem("rememberedPassword") ?? "" : "",
+    password: "",
     rememberAccount,
-    rememberPassword,
   };
 }
 
@@ -1567,7 +1566,6 @@ export function App() {
   const [authEmail, setAuthEmail] = useState(rememberedCredentials.email);
   const [authPassword, setAuthPassword] = useState(rememberedCredentials.password);
   const [rememberAccount, setRememberAccount] = useState(rememberedCredentials.rememberAccount);
-  const [rememberPassword, setRememberPassword] = useState(rememberedCredentials.rememberPassword);
   const [registerCode, setRegisterCode] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isTermsDialogOpen, setIsTermsDialogOpen] = useState(false);
@@ -1974,14 +1972,8 @@ export function App() {
         localStorage.setItem("rememberAccount", "false");
         localStorage.removeItem("rememberedEmail");
       }
-      if (authMode === "login" && rememberPassword) {
-        localStorage.setItem("rememberPassword", "true");
-        localStorage.removeItem("rememberLogin");
-        localStorage.setItem("rememberedPassword", authPassword);
-      } else if (authMode === "login") {
-        localStorage.removeItem("rememberLogin");
-        localStorage.removeItem("rememberPassword");
-        localStorage.removeItem("rememberedPassword");
+      if (authMode === "login") {
+        clearLegacyRememberedPassword();
       }
       setUser(payload.user);
       void syncBrowserTimezone(payload.user);
@@ -2817,6 +2809,7 @@ export function App() {
                 required
                 minLength={8}
                 autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                className="password-input"
               />
             </label>
             {authMode === "login" && (
@@ -2826,20 +2819,6 @@ export function App() {
                     <input type="checkbox" checked={rememberAccount} onChange={(event) => setRememberAccount(event.target.checked)} />
                     <span className="body-sm">{t("rememberAccount")}</span>
                   </label>
-                  <label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={rememberPassword}
-                      onChange={(event) => {
-                        setRememberPassword(event.target.checked);
-                        if (event.target.checked) {
-                          setRememberAccount(true);
-                        }
-                      }}
-                    />
-                    <span className="body-sm">{t("rememberPassword")}</span>
-                  </label>
-                  {rememberPassword && <p className="field-hint">{t("rememberPasswordWarning")}</p>}
                 </div>
                 <button type="button" className="text-button" onClick={() => { setAuthMode("forgot"); showMessage(""); }}>
                   {t("forgotPassword")}
@@ -3618,16 +3597,11 @@ function formatIrccChangeSummaryLines(value: string, languageMode: LanguageMode)
 
 function stripHtmlText(value: unknown): string {
   const raw = String(value ?? "");
-  return raw
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
+  if (typeof DOMParser === "undefined") {
+    return raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  const documentValue = new DOMParser().parseFromString(raw, "text/html");
+  return (documentValue.body.textContent || "").replace(/\s+/g, " ").trim();
 }
 
 function formatIrccCode(value: string, languageMode: LanguageMode): string {
