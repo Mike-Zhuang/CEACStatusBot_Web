@@ -223,6 +223,9 @@ def initializeDatabase() -> None:
                 last_slot_count INTEGER NOT NULL DEFAULT 0,
                 last_result_json TEXT NOT NULL DEFAULT '',
                 last_error_message TEXT NOT NULL DEFAULT '',
+                long_no_slot_notice_sent_at TEXT,
+                long_no_slot_stop_at TEXT,
+                long_no_slot_stopped_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (case_id) REFERENCES ceac_cases(id) ON DELETE CASCADE
@@ -610,6 +613,18 @@ def initializeDatabase() -> None:
         if "email_notifications_enabled" not in passportSlotMonitorColumns:
             connection.execute(
                 "ALTER TABLE passport_slot_monitors ADD COLUMN email_notifications_enabled INTEGER NOT NULL DEFAULT 1",
+            )
+        if "long_no_slot_notice_sent_at" not in passportSlotMonitorColumns:
+            connection.execute(
+                "ALTER TABLE passport_slot_monitors ADD COLUMN long_no_slot_notice_sent_at TEXT",
+            )
+        if "long_no_slot_stop_at" not in passportSlotMonitorColumns:
+            connection.execute(
+                "ALTER TABLE passport_slot_monitors ADD COLUMN long_no_slot_stop_at TEXT",
+            )
+        if "long_no_slot_stopped_at" not in passportSlotMonitorColumns:
+            connection.execute(
+                "ALTER TABLE passport_slot_monitors ADD COLUMN long_no_slot_stopped_at TEXT",
             )
 
 

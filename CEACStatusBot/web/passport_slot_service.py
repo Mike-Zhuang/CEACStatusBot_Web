@@ -10,7 +10,12 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .database import getConnection, utcNowIso
-from .mailer import sendPassportSlotNotification, sendPassportSlotStatusEmail
+from .mailer import (
+    sendPassportSlotLongNoSlotNoticeEmail,
+    sendPassportSlotLongNoSlotStoppedEmail,
+    sendPassportSlotNotification,
+    sendPassportSlotStatusEmail,
+)
 from .secrets import decryptIfNeeded, encryptSecret
 
 
@@ -24,6 +29,8 @@ PASSPORT_SLOT_STATUS_UNKNOWN = "unknown"
 PASSPORT_SLOT_STATE_PREFIX = "state:"
 PASSPORT_SLOT_EMPTY_FINGERPRINT = f"{PASSPORT_SLOT_STATE_PREFIX}{PASSPORT_SLOT_STATUS_NO_SLOT}"
 CHINA_TIMEZONE = ZoneInfo("Asia/Shanghai")
+LONG_NO_SLOT_NOTICE_DAYS = 15
+LONG_NO_SLOT_GRACE_DAYS = 7
 
 
 def normalizeIdentifier(identifier: str) -> str:
@@ -56,6 +63,7 @@ def computeNextPassportSlotCheckAt(
     previousSlotStatus: str | None = None,
     changed: bool = False,
     hasSlotStableCount: int = 0,
+    longNoSlotMode: bool = False,
 ) -> str:
     base = base or datetime.now(UTC)
     if isRateLimited:
@@ -68,6 +76,9 @@ def computeNextPassportSlotCheckAt(
         minutes = random.randint(50, 70)
         return (base + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
     if slotStatus == PASSPORT_SLOT_STATUS_NO_SLOT:
+        if longNoSlotMode:
+            minutes = random.randint(50, 70)
+            return (base + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
         return computeNextNoSlotCheckAt(base).isoformat()
     minutes = random.randint(1, 30)
     return (base + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
@@ -96,6 +107,104 @@ def computeNextNoSlotCheckAt(base: datetime) -> datetime:
         return nextWindowStart.astimezone(UTC).replace(microsecond=0)
     minutes = random.randint(1, 30)
     return (base + timedelta(minutes=minutes)).replace(microsecond=0)
+
+
+def parseIsoDatetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def getLongNoSlotStartedAt(monitorRow: dict[str, Any], firstRunAt: str | None) -> datetime | None:
+    candidates = [
+        parsed
+        for parsed in (
+            parseIsoDatetime(monitorRow["created_at"]),
+            parseIsoDatetime(firstRunAt),
+        )
+        if parsed is not None
+    ]
+    return min(candidates) if candidates else None
+
+
+def getPassportSlotLongNoSlotStats(connection: Any, monitorRow: dict[str, Any]) -> dict[str, Any]:
+    positiveHistory = connection.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM passport_slot_history
+        WHERE monitor_id = ?
+          AND slot_count > 0
+        """,
+        (monitorRow["id"],),
+    ).fetchone()
+    firstRun = connection.execute(
+        """
+        SELECT MIN(started_at) AS first_run_at
+        FROM query_runs
+        WHERE case_id = ?
+          AND success = 1
+          AND trigger_type LIKE 'passport_slot_%'
+        """,
+        (monitorRow["case_id"],),
+    ).fetchone()
+    firstRunAt = firstRun["first_run_at"] if firstRun else None
+    return {
+        "positiveHistoryCount": int(positiveHistory["count"] if positiveHistory else 0),
+        "firstRunAt": firstRunAt,
+        "startedAt": getLongNoSlotStartedAt(monitorRow, firstRunAt),
+    }
+
+
+def hasLongNoSlotNotice(monitorRow: dict[str, Any]) -> bool:
+    return bool(monitorRow["long_no_slot_notice_sent_at"] and monitorRow["long_no_slot_stop_at"])
+
+
+def isLongNoSlotGraceActive(monitorRow: dict[str, Any], now: datetime) -> bool:
+    stopAt = parseIsoDatetime(monitorRow["long_no_slot_stop_at"])
+    return hasLongNoSlotNotice(monitorRow) and not monitorRow["long_no_slot_stopped_at"] and stopAt is not None and now < stopAt
+
+
+def shouldSendLongNoSlotNotice(
+    monitorRow: dict[str, Any],
+    *,
+    slotStatus: str,
+    success: bool,
+    positiveHistoryCount: int,
+    startedAt: datetime | None,
+    now: datetime,
+) -> bool:
+    if not success or slotStatus != PASSPORT_SLOT_STATUS_NO_SLOT:
+        return False
+    if not bool(monitorRow["is_enabled"]) or hasLongNoSlotNotice(monitorRow):
+        return False
+    if positiveHistoryCount > 0 or startedAt is None:
+        return False
+    return now - startedAt >= timedelta(days=LONG_NO_SLOT_NOTICE_DAYS)
+
+
+def shouldAutoStopLongNoSlotMonitor(
+    monitorRow: dict[str, Any],
+    *,
+    positiveHistoryCount: int,
+    now: datetime,
+) -> bool:
+    if not bool(monitorRow["is_enabled"]) or positiveHistoryCount > 0:
+        return False
+    if not hasLongNoSlotNotice(monitorRow) or monitorRow["long_no_slot_stopped_at"]:
+        return False
+    stopAt = parseIsoDatetime(monitorRow["long_no_slot_stop_at"])
+    if stopAt is None or now < stopAt:
+        return False
+    resultJson = decryptIfNeeded(monitorRow["last_result_json"] or "") or ""
+    result = json.loads(resultJson) if resultJson else {}
+    currentStatus = passportSlotStatusFromResult(result if isinstance(result, dict) else {}, monitorRow["last_slot_fingerprint"])
+    return currentStatus == PASSPORT_SLOT_STATUS_NO_SLOT and int(monitorRow["last_slot_count"] or 0) == 0
 
 
 def passportSlotStatusFromFingerprint(fingerprint: str | None) -> str:
@@ -185,6 +294,17 @@ def formatSlotStatus(slotStatus: str, language: str = "zh") -> str:
     return "未知状态"
 
 
+def buildPassportSlotEmailCase(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["case_id"],
+        "user_id": row["user_id"],
+        "display_name": row["display_name"],
+        "application_num": decryptIfNeeded(row["application_num"]) or row["application_num"],
+        "receive_email": decryptIfNeeded(row["receive_email"]) or row["receive_email"],
+        "sender_mode": row["sender_mode"],
+    }
+
+
 def normalizePassportSlotMonitor(row: dict[str, Any] | None) -> dict[str, Any] | None:
     if not row:
         return None
@@ -204,6 +324,9 @@ def normalizePassportSlotMonitor(row: dict[str, Any] | None) -> dict[str, Any] |
         "lastSlotCount": row["last_slot_count"],
         "lastResult": result,
         "lastErrorMessage": row["last_error_message"],
+        "longNoSlotNoticeSentAt": row["long_no_slot_notice_sent_at"],
+        "longNoSlotStopAt": row["long_no_slot_stop_at"],
+        "longNoSlotStoppedAt": row["long_no_slot_stopped_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -249,10 +372,24 @@ def upsertPassportSlotMonitor(
                 """
                 UPDATE passport_slot_monitors
                 SET identifier_encrypted = ?, is_enabled = ?, email_notifications_enabled = ?,
-                    next_check_at = ?, last_error_message = '', updated_at = ?
+                    next_check_at = ?, last_error_message = '',
+                    long_no_slot_notice_sent_at = ?,
+                    long_no_slot_stop_at = ?,
+                    long_no_slot_stopped_at = ?,
+                    updated_at = ?
                 WHERE case_id = ?
                 """,
-                (encryptSecret(normalizedIdentifier), int(isEnabled), int(emailNotificationsEnabled), nextCheckAt, nowIso, caseId),
+                (
+                    encryptSecret(normalizedIdentifier),
+                    int(isEnabled),
+                    int(emailNotificationsEnabled),
+                    nextCheckAt,
+                    None,
+                    None,
+                    None,
+                    nowIso,
+                    caseId,
+                ),
             )
         else:
             connection.execute(
@@ -293,6 +430,14 @@ def patchPassportSlotMonitor(
         if isEnabled is not None:
             assignments.extend(["is_enabled = ?", "next_check_at = ?"])
             values.extend([int(isEnabled), computeNextPassportSlotCheckAt(now) if isEnabled else None])
+            if isEnabled:
+                assignments.extend(
+                    [
+                        "long_no_slot_notice_sent_at = NULL",
+                        "long_no_slot_stop_at = NULL",
+                        "long_no_slot_stopped_at = NULL",
+                    ],
+                )
         if emailNotificationsEnabled is not None:
             assignments.append("email_notifications_enabled = ?")
             values.append(int(emailNotificationsEnabled))
@@ -521,6 +666,10 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
     changed = success and fingerprint != previousFingerprint
     previousStableCount = int(previousResult.get("hasSlotStableCount") or 0) if isinstance(previousResult, dict) else 0
     hasSlotStableCount = previousStableCount + 1 if success and slotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT and previousSlotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT and not changed else 0
+    longNoSlotStats: dict[str, Any] = {"positiveHistoryCount": 0, "firstRunAt": None, "startedAt": None}
+    if success:
+        with getConnection() as connection:
+            longNoSlotStats = getPassportSlotLongNoSlotStats(connection, row)
     shouldAutoStopMonitor = (
         success
         and changed
@@ -544,9 +693,19 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
         result["hasSlotStableCount"] = hasSlotStableCount
         result["autoStopped"] = shouldAutoStopMonitor
         result["slotListChanged"] = slotListChanged
+    longNoSlotNoticeShouldSend = shouldSendLongNoSlotNotice(
+        row,
+        slotStatus=slotStatus,
+        success=success,
+        positiveHistoryCount=int(longNoSlotStats["positiveHistoryCount"]),
+        startedAt=longNoSlotStats["startedAt"],
+        now=finished,
+    )
+    longNoSlotGraceActive = isLongNoSlotGraceActive(row, finished) or longNoSlotNoticeShouldSend
     shouldNotify = (
         success
         and bool(row["email_notifications_enabled"])
+        and not longNoSlotNoticeShouldSend
         and (
             (slotStatus == PASSPORT_SLOT_STATUS_NO_SLOT and previousSlotStatus == PASSPORT_SLOT_STATUS_NOT_ELIGIBLE and changed)
             or (slotStatus == PASSPORT_SLOT_STATUS_NO_SLOT and previousSlotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT and changed)
@@ -556,17 +715,11 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
     )
 
     with getConnection() as connection:
+        longNoSlotStopAt: str | None = None
         if shouldNotify:
             try:
                 sendPassportSlotNotification(
-                    {
-                        "id": row["case_id"],
-                        "user_id": row["user_id"],
-                        "display_name": row["display_name"],
-                        "application_num": decryptIfNeeded(row["application_num"]) or row["application_num"],
-                        "receive_email": decryptIfNeeded(row["receive_email"]) or row["receive_email"],
-                        "sender_mode": row["sender_mode"],
-                    },
+                    buildPassportSlotEmailCase(row),
                     smtpConfig,
                     identifierFull=identifier,
                     identifierMasked=maskIdentifier(identifier),
@@ -582,6 +735,28 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
                 notificationSent = True
             except Exception as exc:
                 errorMessage = f"Notification failed: {exc}"
+        if longNoSlotNoticeShouldSend:
+            longNoSlotStopAt = (finished + timedelta(days=LONG_NO_SLOT_GRACE_DAYS)).replace(microsecond=0).isoformat()
+            try:
+                sendPassportSlotLongNoSlotNoticeEmail(
+                    buildPassportSlotEmailCase(row),
+                    smtpConfig,
+                    identifierFull=identifier,
+                    identifierMasked=maskIdentifier(identifier),
+                    noticeAt=finishedIso,
+                    stopAt=longNoSlotStopAt,
+                    monitorStartedAt=longNoSlotStats["startedAt"].replace(microsecond=0).isoformat()
+                    if longNoSlotStats["startedAt"]
+                    else row["created_at"],
+                    connection=connection,
+                )
+                notificationSent = True
+                result["longNoSlotNoticeSent"] = True
+                result["longNoSlotStopAt"] = longNoSlotStopAt
+            except Exception as exc:
+                errorMessage = f"Long no-slot notification failed: {exc}"
+        if success and slotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT and hasLongNoSlotNotice(row):
+            result["longNoSlotCleared"] = True
         if success and changed:
             connection.execute(
                 """
@@ -609,6 +784,7 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
                 previousSlotStatus=previousSlotStatus,
                 changed=changed,
                 hasSlotStableCount=hasSlotStableCount,
+                longNoSlotMode=longNoSlotGraceActive,
             )
             if bool(row["is_enabled"]) and not shouldAutoStopMonitor
             else None
@@ -630,8 +806,17 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
             UPDATE passport_slot_monitors
             SET last_checked_at = ?, is_enabled = ?, next_check_at = ?, last_slot_fingerprint = ?,
                 last_slot_count = ?, last_result_json = ?, last_error_message = ?, updated_at = ?
+                {long_no_slot_setters}
             WHERE id = ?
-            """,
+            """.format(
+                long_no_slot_setters=(
+                    ", long_no_slot_notice_sent_at = ?, long_no_slot_stop_at = ?, long_no_slot_stopped_at = NULL"
+                    if longNoSlotNoticeShouldSend and longNoSlotStopAt
+                    else ", long_no_slot_notice_sent_at = NULL, long_no_slot_stop_at = NULL, long_no_slot_stopped_at = NULL"
+                    if success and slotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT and hasLongNoSlotNotice(row)
+                    else ""
+                ),
+            ),
             (
                 finishedIso,
                 0 if shouldAutoStopMonitor else int(row["is_enabled"]),
@@ -641,6 +826,11 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
                 encryptSecret(json.dumps(result, ensure_ascii=False, default=str)),
                 errorMessage,
                 finishedIso,
+                *(
+                    (finishedIso, longNoSlotStopAt)
+                    if longNoSlotNoticeShouldSend and longNoSlotStopAt
+                    else ()
+                ),
                 row["id"],
             ),
         )
@@ -761,8 +951,62 @@ def enqueuePassportSlotQuery(caseId: int, triggerType: str, userId: int | None =
     return normalizeQueryJob(row)
 
 
+def stopPassportSlotLongNoSlotMonitorIfDue(caseId: int, now: datetime) -> bool:
+    nowIso = now.replace(microsecond=0).isoformat()
+    with getConnection() as connection:
+        row = connection.execute(
+            """
+            SELECT m.*, c.user_id, c.display_name, c.application_num, c.receive_email, c.sender_mode
+            FROM passport_slot_monitors m
+            JOIN ceac_cases c ON c.id = m.case_id
+            WHERE m.case_id = ?
+            """,
+            (caseId,),
+        ).fetchone()
+        if not row:
+            return False
+        stats = getPassportSlotLongNoSlotStats(connection, row)
+        if not shouldAutoStopLongNoSlotMonitor(row, positiveHistoryCount=int(stats["positiveHistoryCount"]), now=now):
+            return False
+        identifier = decryptIfNeeded(row["identifier_encrypted"]) or ""
+        smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (row["user_id"],)).fetchone()
+        connection.execute(
+            """
+            UPDATE passport_slot_monitors
+            SET is_enabled = 0,
+                next_check_at = NULL,
+                long_no_slot_stopped_at = ?,
+                last_error_message = '',
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (nowIso, nowIso, row["id"]),
+        )
+        try:
+            sendPassportSlotLongNoSlotStoppedEmail(
+                buildPassportSlotEmailCase(row),
+                smtpConfig,
+                identifierFull=identifier,
+                identifierMasked=maskIdentifier(identifier),
+                stoppedAt=nowIso,
+                noticeAt=row["long_no_slot_notice_sent_at"],
+                connection=connection,
+            )
+        except Exception as exc:
+            connection.execute(
+                """
+                UPDATE passport_slot_monitors
+                SET last_error_message = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (f"Long no-slot stop notification failed: {exc}", nowIso, row["id"]),
+            )
+        return True
+
+
 def enqueueDuePassportSlotMonitors(limit: int = 20) -> list[dict[str, Any]]:
-    nowIso = datetime.now(UTC).replace(microsecond=0).isoformat()
+    now = datetime.now(UTC).replace(microsecond=0)
+    nowIso = now.isoformat()
     queued: list[dict[str, Any]] = []
     with getConnection() as connection:
         rows = connection.execute(
@@ -784,6 +1028,8 @@ def enqueueDuePassportSlotMonitors(limit: int = 20) -> list[dict[str, Any]]:
             (nowIso, limit),
         ).fetchall()
     for row in rows:
+        if stopPassportSlotLongNoSlotMonitorIfDue(int(row["case_id"]), now):
+            continue
         job = enqueuePassportSlotQuery(int(row["case_id"]), "passport_slot_automatic")
         if job:
             queued.append(job)

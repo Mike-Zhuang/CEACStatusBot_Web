@@ -626,6 +626,101 @@ def sendPassportSlotStatusEmail(
     )
 
 
+def sendPassportSlotLongNoSlotNoticeEmail(
+    case: dict[str, Any],
+    smtpConfig: dict[str, Any] | None,
+    *,
+    identifierFull: str,
+    identifierMasked: str,
+    noticeAt: str,
+    stopAt: str,
+    monitorStartedAt: str,
+    connection: Any | None = None,
+) -> None:
+    subject = f"[GTS] 长期未发现 slot，7 天后将自动停止：{case['display_name']}"
+    noticeTime = formatCaseEmailTime(case, noticeAt, connection)
+    stopTime = formatCaseEmailTime(case, stopAt, connection)
+    monitorStartTime = formatCaseEmailTime(case, monitorStartedAt, connection)
+    appEntry = getSettings().appBaseUrl
+    body = "\n".join(
+        [
+            f"档案：{case['display_name']}",
+            f"申请号：{case['application_num']}",
+            f"UID/HAL：{identifierFull or identifierMasked}",
+            f"监控开始时间：{monitorStartTime}",
+            f"提醒时间：{noticeTime}",
+            "",
+            "当前状态：长期未发现可预约 slot",
+            "",
+            "系统检测到该 GTS 护照预约监控已经连续运行超过 15 天，期间从未发现可预约 slot。",
+            "为了避免长期空跑和持续请求 GTS，系统已将该监控降频为约 1 小时随机查询一次。",
+            f"如果 7 天后仍然没有发现 slot，系统将在 {stopTime} 之后自动停止该监控。",
+            "",
+            "如果你仍希望继续监控，可在自动停止后回到站内手动重新开启；你也可以随时手动立即查询。",
+            "说明：GTS 查询结果依赖官方接口，本服务不保证 slot 完整性、实时性或预约成功。",
+            "",
+            "预约入口：https://schedule.gtspremium.com/",
+            f"站内入口：{appEntry}",
+            "安全提醒：本邮件包含完整 UID/HAL，请勿转发或公开截图。",
+        ],
+    )
+    sendCaseEmail(
+        case,
+        smtpConfig,
+        subject,
+        body,
+        emailType="passport_slot",
+        connection=connection,
+        includeSupport=True,
+    )
+
+
+def sendPassportSlotLongNoSlotStoppedEmail(
+    case: dict[str, Any],
+    smtpConfig: dict[str, Any] | None,
+    *,
+    identifierFull: str,
+    identifierMasked: str,
+    stoppedAt: str,
+    noticeAt: str,
+    connection: Any | None = None,
+) -> None:
+    subject = f"[GTS] 长期未发现 slot，已自动停止：{case['display_name']}"
+    stoppedTime = formatCaseEmailTime(case, stoppedAt, connection)
+    noticeTime = formatCaseEmailTime(case, noticeAt, connection)
+    appEntry = getSettings().appBaseUrl
+    body = "\n".join(
+        [
+            f"档案：{case['display_name']}",
+            f"申请号：{case['application_num']}",
+            f"UID/HAL：{identifierFull or identifierMasked}",
+            f"提醒时间：{noticeTime}",
+            f"停止时间：{stoppedTime}",
+            "",
+            "当前状态：长期未发现可预约 slot，监控已自动停止",
+            "",
+            "系统已在提醒后继续低频查询 7 天，期间仍未发现可预约 slot。",
+            "为避免继续长期空跑，系统已自动停止该档案的 GTS 护照预约监控。",
+            "",
+            "你仍然可以回到站内手动重新开启监控，或手动立即查询。",
+            "说明：GTS 查询结果依赖官方接口，本服务不保证 slot 完整性、实时性或预约成功。",
+            "",
+            "预约入口：https://schedule.gtspremium.com/",
+            f"站内入口：{appEntry}",
+            "安全提醒：本邮件包含完整 UID/HAL，请勿转发或公开截图。",
+        ],
+    )
+    sendCaseEmail(
+        case,
+        smtpConfig,
+        subject,
+        body,
+        emailType="passport_slot",
+        connection=connection,
+        includeSupport=True,
+    )
+
+
 def sendIssuedAutoStopNotification(case: dict[str, Any], smtpConfig: dict[str, Any] | None, issuedAt: str, connection: Any | None = None) -> None:
     subject = f"[CEAC] {case['application_num']} 已自动停止查询"
     issuedTime = formatCaseEmailTime(case, issuedAt, connection)
