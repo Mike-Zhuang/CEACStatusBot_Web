@@ -26,6 +26,7 @@ PASSPORT_SLOT_STATUS_NOT_ELIGIBLE = "not_eligible"
 PASSPORT_SLOT_STATUS_NO_SLOT = "no_slot"
 PASSPORT_SLOT_STATUS_HAS_SLOT = "has_slot"
 PASSPORT_SLOT_STATUS_UNKNOWN = "unknown"
+PASSPORT_SLOT_LONG_NO_SLOT_STATUSES = {PASSPORT_SLOT_STATUS_NO_SLOT, PASSPORT_SLOT_STATUS_NOT_ELIGIBLE}
 PASSPORT_SLOT_STATE_PREFIX = "state:"
 PASSPORT_SLOT_EMPTY_FINGERPRINT = f"{PASSPORT_SLOT_STATE_PREFIX}{PASSPORT_SLOT_STATUS_NO_SLOT}"
 CHINA_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -75,10 +76,10 @@ def computeNextPassportSlotCheckAt(
     if slotStatus == PASSPORT_SLOT_STATUS_HAS_SLOT:
         minutes = random.randint(50, 70)
         return (base + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
+    if longNoSlotMode and slotStatus in PASSPORT_SLOT_LONG_NO_SLOT_STATUSES:
+        minutes = random.randint(50, 70)
+        return (base + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
     if slotStatus == PASSPORT_SLOT_STATUS_NO_SLOT:
-        if longNoSlotMode:
-            minutes = random.randint(50, 70)
-            return (base + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
         return computeNextNoSlotCheckAt(base).isoformat()
     minutes = random.randint(1, 30)
     return (base + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
@@ -179,7 +180,7 @@ def shouldSendLongNoSlotNotice(
     startedAt: datetime | None,
     now: datetime,
 ) -> bool:
-    if not success or slotStatus != PASSPORT_SLOT_STATUS_NO_SLOT:
+    if not success or slotStatus not in PASSPORT_SLOT_LONG_NO_SLOT_STATUSES:
         return False
     if not bool(monitorRow["is_enabled"]) or hasLongNoSlotNotice(monitorRow):
         return False
@@ -204,7 +205,7 @@ def shouldAutoStopLongNoSlotMonitor(
     resultJson = decryptIfNeeded(monitorRow["last_result_json"] or "") or ""
     result = json.loads(resultJson) if resultJson else {}
     currentStatus = passportSlotStatusFromResult(result if isinstance(result, dict) else {}, monitorRow["last_slot_fingerprint"])
-    return currentStatus == PASSPORT_SLOT_STATUS_NO_SLOT and int(monitorRow["last_slot_count"] or 0) == 0
+    return currentStatus in PASSPORT_SLOT_LONG_NO_SLOT_STATUSES and int(monitorRow["last_slot_count"] or 0) == 0
 
 
 def passportSlotStatusFromFingerprint(fingerprint: str | None) -> str:

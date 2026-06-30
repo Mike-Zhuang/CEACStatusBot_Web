@@ -13,6 +13,7 @@ from CEACStatusBot.web.database import getConnection, initializeDatabase
 from CEACStatusBot.web.passport_slot_service import (
     PASSPORT_SLOT_EMPTY_FINGERPRINT,
     PASSPORT_SLOT_STATUS_HAS_SLOT,
+    PASSPORT_SLOT_STATUS_NOT_ELIGIBLE,
     PASSPORT_SLOT_STATUS_NO_SLOT,
     computePassportSlotFingerprint,
     enqueueDuePassportSlotMonitors,
@@ -103,6 +104,17 @@ class PassportSlotLongNoSlotTests(unittest.TestCase):
             "raw": {},
         }
 
+    def notEligibleResult(self) -> dict:
+        return {
+            "success": True,
+            "rateLimited": False,
+            "slotStatus": PASSPORT_SLOT_STATUS_NOT_ELIGIBLE,
+            "statusMessage": "您没有资格预约。",
+            "availableSlots": [],
+            "availableDates": [],
+            "raw": {},
+        }
+
     def hasSlotResult(self) -> dict:
         return {
             "success": True,
@@ -147,6 +159,24 @@ class PassportSlotLongNoSlotTests(unittest.TestCase):
         nextCheckAt = datetime.fromisoformat(monitor["next_check_at"])
         self.assertEqual(timedelta(minutes=60), nextCheckAt - lastCheckedAt)
 
+    def test_not_eligible_after_fifteen_days_enters_protection(self) -> None:
+        createdAt = (datetime.now(UTC) - timedelta(days=16)).replace(microsecond=0).isoformat()
+        self.updateMonitor(created_at=createdAt)
+
+        with (
+            patch("CEACStatusBot.web.passport_slot_service.fetchPassportSlotAvailability", return_value=self.notEligibleResult()),
+            patch("CEACStatusBot.web.passport_slot_service.sendPassportSlotLongNoSlotNoticeEmail") as noticeEmail,
+            patch("CEACStatusBot.web.passport_slot_service.random.randint", return_value=62),
+        ):
+            runPassportSlotQuery(self.caseId)
+
+        monitor = self.getMonitor()
+        self.assertIsNotNone(monitor["long_no_slot_notice_sent_at"])
+        noticeEmail.assert_called_once()
+        lastCheckedAt = datetime.fromisoformat(monitor["last_checked_at"])
+        nextCheckAt = datetime.fromisoformat(monitor["next_check_at"])
+        self.assertEqual(timedelta(minutes=62), nextCheckAt - lastCheckedAt)
+
     def test_notice_not_repeated_during_grace_period(self) -> None:
         now = datetime.now(UTC).replace(microsecond=0)
         self.updateMonitor(
@@ -177,6 +207,27 @@ class PassportSlotLongNoSlotTests(unittest.TestCase):
             last_slot_fingerprint=PASSPORT_SLOT_EMPTY_FINGERPRINT,
             last_slot_count=0,
             last_result_json='{"slotStatus":"no_slot","availableSlots":[]}',
+        )
+
+        with patch("CEACStatusBot.web.passport_slot_service.sendPassportSlotLongNoSlotStoppedEmail") as stoppedEmail:
+            queued = enqueueDuePassportSlotMonitors()
+
+        monitor = self.getMonitor()
+        self.assertEqual([], queued)
+        self.assertEqual(0, monitor["is_enabled"])
+        self.assertIsNone(monitor["next_check_at"])
+        self.assertIsNotNone(monitor["long_no_slot_stopped_at"])
+        stoppedEmail.assert_called_once()
+
+    def test_auto_stop_after_grace_period_when_still_not_eligible(self) -> None:
+        now = datetime.now(UTC).replace(microsecond=0)
+        self.updateMonitor(
+            long_no_slot_notice_sent_at=(now - timedelta(days=8)).isoformat(),
+            long_no_slot_stop_at=(now - timedelta(days=1)).isoformat(),
+            next_check_at=(now - timedelta(minutes=1)).isoformat(),
+            last_slot_fingerprint=f"state:{PASSPORT_SLOT_STATUS_NOT_ELIGIBLE}",
+            last_slot_count=0,
+            last_result_json='{"slotStatus":"not_eligible","availableSlots":[]}',
         )
 
         with patch("CEACStatusBot.web.passport_slot_service.sendPassportSlotLongNoSlotStoppedEmail") as stoppedEmail:
