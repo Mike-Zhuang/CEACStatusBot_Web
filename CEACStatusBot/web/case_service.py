@@ -14,7 +14,13 @@ from .passport_slot_service import (
     runPassportSlotQuery,
 )
 from .schemas import CeacCaseInput, CeacCasePatch, ProfileOrderItem
-from .secrets import decryptIfNeeded, encryptSecret, isEncryptedSecret
+from .secrets import (
+    decryptIfNeeded,
+    encryptSecret,
+    hashSensitiveLookup,
+    isEncryptedSecret,
+    isSensitiveLookupHash,
+)
 
 
 SENSITIVE_CASE_COLUMNS = {"application_num", "passport_number", "surname", "receive_email"}
@@ -256,7 +262,7 @@ def upsertSmtpConfig(connection: Any, userId: int, smtpConfig: Any) -> None:
         """,
         (
             userId,
-            str(smtpConfig.fromEmail),
+            encryptSecret(str(smtpConfig.fromEmail)),
             smtpConfig.host,
             smtpConfig.port,
             int(smtpConfig.useSsl),
@@ -709,7 +715,13 @@ def migrateEncryptedFields() -> None:
                 connection.execute(f"UPDATE ceac_cases SET {', '.join(assignments)} WHERE id = ?", tuple(values))
 
         for tableName in ("smtp_configs", "system_smtp_config"):
-            for row in connection.execute(f"SELECT id, password_encrypted FROM {tableName}").fetchall():
+            for row in connection.execute(f"SELECT id, from_email, password_encrypted FROM {tableName}").fetchall():
+                fromEmail = row["from_email"]
+                if fromEmail and not isEncryptedSecret(fromEmail):
+                    connection.execute(
+                        f"UPDATE {tableName} SET from_email = ? WHERE id = ?",
+                        (encryptSecret(str(fromEmail)), row["id"]),
+                    )
                 value = row["password_encrypted"]
                 if value and not value.startswith("v2:"):
                     connection.execute(
@@ -742,6 +754,52 @@ def migrateEncryptedFields() -> None:
             if value and not isEncryptedSecret(value):
                 connection.execute(
                     "UPDATE passport_slot_history SET raw_payload = ? WHERE id = ?",
+                    (encryptSecret(str(value)), row["id"]),
+                )
+
+        for row in connection.execute("SELECT id, recipient, subject, body_encrypted FROM email_delivery_logs").fetchall():
+            assignments = []
+            values = []
+            for column in ("recipient", "subject", "body_encrypted"):
+                value = row[column]
+                if value and not isEncryptedSecret(value):
+                    assignments.append(f"{column} = ?")
+                    values.append(encryptSecret(str(value)))
+            if assignments:
+                values.append(row["id"])
+                connection.execute(
+                    f"UPDATE email_delivery_logs SET {', '.join(assignments)} WHERE id = ?",
+                    tuple(values),
+                )
+
+        for row in connection.execute("SELECT id, email FROM email_verification_codes").fetchall():
+            value = row["email"]
+            if value and not isSensitiveLookupHash(value):
+                connection.execute(
+                    "UPDATE email_verification_codes SET email = ? WHERE id = ?",
+                    (hashSensitiveLookup(str(value)), row["id"]),
+                )
+
+        for row in connection.execute("SELECT * FROM ircc_cases").fetchall():
+            assignments = []
+            values = []
+            for column in ("app_id", "application_number", "principal_applicant", "receive_email", "last_summary"):
+                value = row[column]
+                if value and not isEncryptedSecret(value):
+                    assignments.append(f"{column} = ?")
+                    values.append(encryptSecret(str(value)))
+            if assignments:
+                values.append(row["id"])
+                connection.execute(
+                    f"UPDATE ircc_cases SET {', '.join(assignments)} WHERE id = ?",
+                    tuple(values),
+                )
+
+        for row in connection.execute("SELECT id, change_summary FROM ircc_status_history").fetchall():
+            value = row["change_summary"]
+            if value and not isEncryptedSecret(value):
+                connection.execute(
+                    "UPDATE ircc_status_history SET change_summary = ? WHERE id = ?",
                     (encryptSecret(str(value)), row["id"]),
                 )
 

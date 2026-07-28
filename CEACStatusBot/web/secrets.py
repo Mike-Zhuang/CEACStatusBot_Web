@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import os
 from functools import lru_cache
 
@@ -11,6 +12,7 @@ from .config import getSettings
 
 AES_GCM_PREFIX = "v2"
 DEFAULT_KEY_ID = "local"
+LOOKUP_HASH_PREFIX = "h1"
 
 
 def _decodeBase64Url(value: str) -> bytes:
@@ -55,6 +57,16 @@ def encryptSecret(value: str) -> str:
     nonce = os.urandom(12)
     ciphertext = AESGCM(getCredentialMasterKey()).encrypt(nonce, value.encode(), None)
     return f"{AES_GCM_PREFIX}:{DEFAULT_KEY_ID}:{_encodeBase64Url(nonce)}:{_encodeBase64Url(ciphertext)}"
+
+
+def isSensitiveLookupHash(value: str | None) -> bool:
+    return bool(value and value.startswith(f"{LOOKUP_HASH_PREFIX}:"))
+
+
+def hashSensitiveLookup(value: str) -> str:
+    normalized = value.strip().lower().encode()
+    digest = hmac.new(getCredentialMasterKey(), normalized, hashlib.sha256).hexdigest()
+    return f"{LOOKUP_HASH_PREFIX}:{digest}"
 
 
 def decryptSecret(value: str) -> str:

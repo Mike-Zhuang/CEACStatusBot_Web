@@ -109,7 +109,7 @@ from .security_guard import (
     recordLoginFailure,
     requestActorHashes,
 )
-from .secrets import decryptIfNeeded, getCredentialMasterKey
+from .secrets import decryptIfNeeded, getCredentialMasterKey, hashSensitiveLookup
 
 TERMS_VERSION = "2026-05-15"
 INACTIVITY_NOTICE_DAYS = 15
@@ -213,6 +213,7 @@ def listCasesForQueryRuns(rows: list[dict]) -> list[dict]:
     for row in rows:
         item = dict(row)
         item["application_num"] = decryptIfNeeded(item.get("application_num")) or ""
+        item["status"] = decryptIfNeeded(item.get("status")) or ""
         item["profile_type"] = item.get("profile_type") or "ceac"
         runs.append(item)
     return runs
@@ -542,7 +543,7 @@ def sendCode(payload: SendCodeRequest, request: Request) -> dict:
             VALUES (?, ?, 'register', ?, ?)
             """,
             (
-                email,
+                hashSensitiveLookup(email),
                 hashCode(code),
                 (now + timedelta(minutes=10)).replace(microsecond=0).isoformat(),
                 now.replace(microsecond=0).isoformat(),
@@ -569,7 +570,7 @@ def sendPasswordResetCode(payload: PasswordResetCodeRequest, request: Request) -
             VALUES (?, ?, 'password_reset', ?, ?)
             """,
             (
-                email,
+                hashSensitiveLookup(email),
                 hashCode(code),
                 (now + timedelta(minutes=10)).replace(microsecond=0).isoformat(),
                 now.replace(microsecond=0).isoformat(),
@@ -605,7 +606,7 @@ def resetPassword(payload: PasswordResetRequest, request: Request) -> dict:
             ORDER BY id DESC
             LIMIT 1
             """,
-            (email,),
+            (hashSensitiveLookup(email),),
         ).fetchone()
         if not codeRow or codeRow["code_hash"] != hashCode(payload.code):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误或已过期")
@@ -649,7 +650,7 @@ def register(payload: RegisterRequest, request: Request, response: Response) -> 
             ORDER BY id DESC
             LIMIT 1
             """,
-            (email,),
+            (hashSensitiveLookup(email),),
         ).fetchone()
         if not codeRow or codeRow["code_hash"] != hashCode(payload.code):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误")
@@ -1710,6 +1711,8 @@ def adminEmailDeliveries(limit: int = 200, _: dict = Depends(adminDependency)) -
     deliveries = []
     for row in rows:
         item = dict(row)
+        item["recipient"] = decryptIfNeeded(item.get("recipient")) or ""
+        item["subject"] = decryptIfNeeded(item.get("subject")) or ""
         item["body"] = decryptIfNeeded(item.pop("body_encrypted") or "") or ""
         deliveries.append(item)
     return {"deliveries": deliveries}

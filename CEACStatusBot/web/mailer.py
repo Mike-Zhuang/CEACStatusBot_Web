@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .config import getSettings
 from .database import getConnection, utcNowIso
-from .secrets import decryptSecret, encryptSecret
+from .secrets import decryptIfNeeded, decryptSecret, encryptSecret
 
 
 class DailyEmailLimitExceeded(RuntimeError):
@@ -376,6 +376,8 @@ def recordEmailDelivery(
 ) -> None:
     if userId is None:
         return
+    recipientEncrypted = encryptSecret(recipient) if recipient else ""
+    subjectEncrypted = encryptSecret(subject) if subject else ""
     bodyEncrypted = encryptSecret(body) if body else ""
     if connection is not None:
         connection.execute(
@@ -383,7 +385,7 @@ def recordEmailDelivery(
             INSERT INTO email_delivery_logs (user_id, case_id, email_type, recipient, subject, body_encrypted, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (userId, caseId, emailType, recipient, subject, bodyEncrypted, utcNowIso()),
+            (userId, caseId, emailType, recipientEncrypted, subjectEncrypted, bodyEncrypted, utcNowIso()),
         )
         return
     with getConnection() as localConnection:
@@ -392,7 +394,7 @@ def recordEmailDelivery(
             INSERT INTO email_delivery_logs (user_id, case_id, email_type, recipient, subject, body_encrypted, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (userId, caseId, emailType, recipient, subject, bodyEncrypted, utcNowIso()),
+            (userId, caseId, emailType, recipientEncrypted, subjectEncrypted, bodyEncrypted, utcNowIso()),
         )
 
 
@@ -402,7 +404,7 @@ def getSystemSmtpConfig() -> dict[str, Any]:
         row = connection.execute("SELECT * FROM system_smtp_config WHERE id = 1").fetchone()
     if row:
         return {
-            "fromEmail": row["from_email"],
+            "fromEmail": decryptIfNeeded(row["from_email"]) or "",
             "host": row["host"],
             "port": int(row["port"]),
             "useSsl": bool(row["use_ssl"]),
@@ -459,7 +461,7 @@ def saveSystemSmtpConfig(*, fromEmail: str, host: str, port: int, useSsl: bool, 
                 password_encrypted = excluded.password_encrypted,
                 updated_at = excluded.updated_at
             """,
-            (fromEmail, host, port, int(useSsl), passwordEncrypted, now, now),
+            (encryptSecret(fromEmail), host, port, int(useSsl), passwordEncrypted, now, now),
         )
     return getSystemSmtpConfigPublic()
 
@@ -824,7 +826,7 @@ def sendCaseEmail(
     htmlBody = buildEmailHtml(body, includeSupport=includeSupport)
     if case["sender_mode"] == "custom" and smtpConfig:
         sendEmail(
-            fromEmail=smtpConfig["from_email"],
+            fromEmail=decryptIfNeeded(smtpConfig["from_email"]) or "",
             toEmail=case["receive_email"],
             password=decryptSecret(smtpConfig["password_encrypted"]),
             host=smtpConfig["host"],

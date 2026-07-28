@@ -1216,14 +1216,23 @@ select:user-invalid:not(:focus) {
 
 .support-card-layout {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
-.support-card-layout img {
-  width: 148px;
-  height: 148px;
+.support-qr-link {
+  display: block;
+  width: 220px;
+  height: 220px;
+  border-radius: 8px;
+}
+
+.support-card-layout img,
+.support-card img {
+  display: block;
+  width: 220px;
+  height: 220px;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid var(--hairline);
@@ -1260,14 +1269,6 @@ select:user-invalid:not(:focus) {
 
 .support-card.compact {
   padding: 12px;
-}
-
-.support-card img {
-  width: 148px;
-  height: 148px;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid var(--hairline);
 }
 
 .support-copy {
@@ -1315,8 +1316,8 @@ select:user-invalid:not(:focus) {
 }
 
 .dashboard-sidebar .support-card-layout img {
-  width: 128px;
-  height: 128px;
+  width: 220px;
+  height: 220px;
 }
 
 .support-disclaimer {
@@ -2929,13 +2930,14 @@ select:user-invalid:not(:focus) {
   }
 
   .support-card-layout img {
-    width: 136px;
-    height: 136px;
+    width: 208px;
+    height: 208px;
   }
 
+  .support-qr-link,
   .support-card img {
-    width: 136px;
-    height: 136px;
+    width: 208px;
+    height: 208px;
   }
 
   .workspace {

@@ -10,19 +10,19 @@ authors = [
 ]
 dependencies = [
     "argon2-cffi>=23.1.0",
-    "apscheduler>=3.11.0",
+    "apscheduler>=3.11.3",
     "beautifulsoup4>=4.15.0",
     "cryptography>=49.0.0",
-    "fastapi>=0.138.1",
+    "fastapi>=0.139.0",
     "httpx>=0.28.0",
     "lxml>=6.1.0",
-    "numpy>=2.4.6",
+    "numpy>=2.5.1",
     "onnxruntime>=1.27.0",
-    "pillow>=12.2.0",
+    "pillow>=12.3.0",
     "pydantic[email]>=2.13.4",
     "python-dotenv>=1.2.2",
     "requests>=2.33.0",
-    "uvicorn[standard]>=0.49.0",
+    "uvicorn[standard]>=0.50.0",
 ]
 
 [dependency-groups]

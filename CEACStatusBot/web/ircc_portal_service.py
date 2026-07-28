@@ -41,6 +41,13 @@ COGNITO_POOL_NAME = COGNITO_USER_POOL_ID.split("_", 1)[1]
 COGNITO_ENDPOINT = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/"
 IRCC_QUERY_TRIGGER_PREFIX = "ircc_"
 IRCC_QUERY_TIMEOUT_ERROR_MESSAGE = "IRCC Portal 查询运行超过系统设定时间仍未完成，已标记为失败；请稍后重试或重新验证 IRCC 账号。"
+SENSITIVE_IRCC_CASE_COLUMNS = {
+    "app_id",
+    "application_number",
+    "principal_applicant",
+    "receive_email",
+    "last_summary",
+}
 COGNITO_N_HEX = (
     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E08"
     "8A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD"
@@ -1279,7 +1286,15 @@ def discoverIrccApplications(userId: int, payload: IrccDiscoverRequest) -> dict[
     return {"accountId": accountId, "applications": applications}
 
 
+def decryptIrccCaseRow(row: dict[str, Any]) -> dict[str, Any]:
+    decrypted = dict(row)
+    for column in SENSITIVE_IRCC_CASE_COLUMNS:
+        decrypted[column] = decryptIfNeeded(decrypted.get(column)) or ""
+    return decrypted
+
+
 def normalizeIrccCaseRow(row: dict[str, Any]) -> dict[str, Any]:
+    row = decryptIrccCaseRow(row)
     email = decryptIfNeeded(row.get("portal_email_encrypted")) or ""
     rawPayload = decryptIfNeeded(row.get("latest_raw_payload") or "") or ""
     latestSnapshot = json.loads(rawPayload) if rawPayload else None
@@ -1292,7 +1307,7 @@ def normalizeIrccCaseRow(row: dict[str, Any]) -> dict[str, Any]:
         "appId": row["app_id"],
         "applicationNumber": row["application_number"],
         "principalApplicant": row["principal_applicant"],
-        "receiveEmail": decryptIfNeeded(row["receive_email"]) or "",
+        "receiveEmail": row["receive_email"],
         "senderMode": row["sender_mode"],
         "isEnabled": bool(row["is_enabled"]),
         "emailNotificationsEnabled": bool(row["email_notifications_enabled"]),
@@ -1388,7 +1403,14 @@ def createIrccCase(userId: int, payload: IrccCaseInput) -> dict[str, Any]:
             profileLimit = PREMIUM_CASE_LIMIT if user.get("account_tier") == "premium" else STANDARD_CASE_LIMIT
             if countUserProfiles(connection, userId) >= profileLimit:
                 raise ValueError(f"当前账号最多可添加 {profileLimit} 个档案，请联系管理员升级账号。")
-        duplicate = connection.execute("SELECT id FROM ircc_cases WHERE user_id = ? AND app_id = ?", (userId, payload.appId)).fetchone()
+        duplicate = next(
+            (
+                row
+                for row in connection.execute("SELECT id, app_id FROM ircc_cases WHERE user_id = ?", (userId,)).fetchall()
+                if (decryptIfNeeded(row["app_id"]) or "") == payload.appId
+            ),
+            None,
+        )
         if duplicate:
             raise ValueError("该 IRCC 申请已经存在。")
         upsertSmtpConfig(connection, userId, payload.smtpConfig)
@@ -1405,9 +1427,9 @@ def createIrccCase(userId: int, payload: IrccCaseInput) -> dict[str, Any]:
                 userId,
                 accountId,
                 payload.displayName,
-                payload.appId,
-                payload.applicationNumber or "",
-                payload.principalApplicant or "",
+                encryptSecret(payload.appId),
+                encryptSecret(payload.applicationNumber) if payload.applicationNumber else "",
+                encryptSecret(payload.principalApplicant) if payload.principalApplicant else "",
                 encryptSecret(str(payload.receiveEmail or "")),
                 payload.senderMode,
                 int(payload.isEnabled),
@@ -1440,6 +1462,21 @@ def patchIrccCase(caseId: int, userId: int, payload: IrccCasePatch) -> dict[str,
         row = connection.execute("SELECT * FROM ircc_cases WHERE id = ? AND user_id = ?", (caseId, userId)).fetchone()
         if not row:
             return None
+        nextAppId = data.get("appId")
+        if nextAppId is not None and nextAppId != current.get("appId"):
+            duplicate = next(
+                (
+                    candidate
+                    for candidate in connection.execute(
+                        "SELECT id, app_id FROM ircc_cases WHERE user_id = ? AND id <> ?",
+                        (userId, caseId),
+                    ).fetchall()
+                    if (decryptIfNeeded(candidate["app_id"]) or "") == nextAppId
+                ),
+                None,
+            )
+            if duplicate:
+                raise ValueError("该 IRCC 申请已经存在。")
         accountId = int(row["account_id"])
         if payload.smtpConfig:
             upsertSmtpConfig(connection, userId, payload.smtpConfig)
@@ -1465,8 +1502,8 @@ def patchIrccCase(caseId: int, userId: int, payload: IrccCasePatch) -> dict[str,
             if key not in data:
                 continue
             value = data[key]
-            if key == "receiveEmail" and value is not None:
-                value = encryptSecret(str(value))
+            if key in {"appId", "applicationNumber", "principalApplicant", "receiveEmail"} and value is not None:
+                value = encryptSecret(str(value)) if str(value) else ""
             if key == "isEnabled":
                 value = int(value)
                 assignments.append("next_check_at = ?")
@@ -1511,7 +1548,7 @@ def sendIrccNotification(
     config = None
     if case["sender_mode"] == "custom" and smtpConfig:
         config = {
-            "fromEmail": smtpConfig["from_email"],
+            "fromEmail": decryptIfNeeded(smtpConfig["from_email"]) or "",
             "password": decryptSecret(smtpConfig["password_encrypted"]),
             "host": smtpConfig["host"],
             "port": int(smtpConfig["port"]),
@@ -1647,8 +1684,7 @@ def stopIrccIssuedEquivalentCaseIfExpired(caseId: int, now: datetime, issuedAt: 
         )
         smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (case["user_id"],)).fetchone()
 
-    caseDict = dict(case)
-    caseDict["receive_email"] = decryptIfNeeded(caseDict["receive_email"]) or ""
+    caseDict = decryptIrccCaseRow(case)
     try:
         sendIrccIssuedAutoStopNotification(caseDict, smtpConfig, issuedAt.isoformat())
     except Exception as exc:
@@ -1707,12 +1743,11 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
         ).fetchone()
     if not row:
         raise RuntimeError("IRCC 档案不存在")
-    case = dict(row)
-    case["receive_email"] = decryptIfNeeded(case["receive_email"]) or ""
+    case = decryptIrccCaseRow(row)
     try:
         tokenCache = getAuthorizedToken(row)
         updateAccountAuthState(int(row["account_id"]), tokenCache)
-        snapshot = fetchIrccSnapshot(str(row["app_id"]), tokenCache)
+        snapshot = fetchIrccSnapshot(case["app_id"], tokenCache)
         snapshotHash = stableHash(normalizeSnapshot(snapshot))
         previousSnapshot = json.loads(decryptIfNeeded(previous["raw_payload"]) or "{}") if previous else None
         previousSnapshotHash = stableHash(normalizeSnapshot(previousSnapshot)) if previousSnapshot else ""
@@ -1751,16 +1786,16 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                             else irccEmailSubjectAction(changeType)
                         )
                         includeSupport = hasIrccIssuedEquivalentHeadlineChanged(previousSnapshot, snapshot)
-                        subject = f"[IRCC Alpha] {row['application_number'] or row['app_id']} {subjectAction}"
+                        subject = f"[IRCC Alpha] {case['application_number'] or case['app_id']} {subjectAction}"
                         body = "\n".join(
                             [
                                 irccEmailIntro(changeType),
                                 "提示：该功能仍处于 Alpha，结果依赖 IRCC Portal，可能因为官网变化而延迟或失败。",
                                 "",
-                                f"档案：{row['display_name']}",
-                                f"Application number：{row['application_number'] or '-'}",
-                                f"appId：{row['app_id']}",
-                                f"申请人：{row['principal_applicant'] or '-'}",
+                                f"档案：{case['display_name']}",
+                                f"Application number：{case['application_number'] or '-'}",
+                                f"appId：{case['app_id']}",
+                                f"申请人：{case['principal_applicant'] or '-'}",
                                 f"查询时间：{queryTime}",
                                 "",
                                 "状态概览：",
@@ -1791,7 +1826,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                         str(normalized.get("applicationStatus") or ""),
                         str(normalized.get("applicationInfoStatus") or ""),
                         messageCount,
-                        changeSummary,
+                        encryptSecret(changeSummary) if changeSummary else "",
                         finishedIso,
                         encryptSecret(json.dumps(snapshot, ensure_ascii=False, default=str)),
                         int(notificationSent),
@@ -1814,7 +1849,7 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
                     computeNextIrccCheckAt(finished, getIrccHeadlineCode(snapshot)) if isEnabledNow else None,
                     triggerType,
                     snapshotHash,
-                    summarizeSnapshotBrief(snapshot),
+                    encryptSecret(summarizeSnapshotBrief(snapshot)),
                     finishedIso,
                     caseId,
                 ),
@@ -1877,7 +1912,7 @@ def listIrccHistory(caseId: int, userId: int | None = None) -> list[dict[str, An
             "applicationStatus": row["application_status"],
             "applicationInfoStatus": row["application_info_status"],
             "messageCount": row["message_count"],
-            "changeSummary": row["change_summary"],
+            "changeSummary": decryptIfNeeded(row["change_summary"]) or "",
             "fetchedAt": row["fetched_at"],
             "rawPayload": json.loads(decryptIfNeeded(row["raw_payload"]) or "{}"),
             "notificationSent": bool(row["notification_sent"]),
@@ -2111,11 +2146,14 @@ def sendCurrentIrccEmail(caseId: int, userId: int | None = None) -> dict[str, An
         smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (row["user_id"],)).fetchone()
     if not latest:
         return {"success": False, "error": "暂无 IRCC 状态快照，请先立即查询一次"}
-    case = dict(row)
-    case["receive_email"] = decryptIfNeeded(case["receive_email"]) or ""
+    case = decryptIrccCaseRow(row)
     snapshot = json.loads(decryptIfNeeded(latest["raw_payload"]) or "{}")
     previousSnapshot = json.loads(decryptIfNeeded(previous["raw_payload"]) or "{}") if previous else None
-    changeSummary = buildIrccDisplayChangeSummary(latest["change_summary"], previousSnapshot, snapshot)
+    changeSummary = buildIrccDisplayChangeSummary(
+        decryptIfNeeded(latest["change_summary"]) or "",
+        previousSnapshot,
+        snapshot,
+    )
     emailTimezone = getUserEmailTimezone(int(case["user_id"]))
     body = "\n".join(
         [

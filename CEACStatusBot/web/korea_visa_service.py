@@ -26,7 +26,28 @@ KOREA_VISA_STATUS_URL = "https://www.visa.go.kr/openPage.do?MENU_ID=10301"
 KOREA_QUERY_TRIGGER_PREFIX = "korea_"
 KOREA_QUERY_TIMEOUT_ERROR_MESSAGE = "韩国签证查询运行超过系统设定时间仍未完成，已标记为失败；请稍后重试。"
 KOREA_NO_DATA_STATUS = "暂无查询资料"
-SENSITIVE_KOREA_COLUMNS = {"passport_number", "english_name", "birth_date", "receive_email"}
+SENSITIVE_KOREA_COLUMNS = {
+    "passport_number",
+    "english_name",
+    "birth_date",
+    "receive_email",
+    "last_application_no",
+    "last_application_date",
+    "last_entry_purpose",
+    "last_visa_type",
+    "last_stay_qualification",
+    "last_entry_expiry_date",
+    "last_status",
+}
+SENSITIVE_KOREA_HISTORY_COLUMNS = {
+    "application_no",
+    "application_date",
+    "entry_purpose",
+    "visa_type",
+    "stay_qualification",
+    "entry_expiry_date",
+    "status",
+}
 REQUEST_TIMEOUT = (10, 45)
 KOREA_ISSUED_STATUS_KEYWORDS = ("签发", "발급", "issued")
 KOREA_REFUSED_STATUS_KEYWORDS = ("拒签", "不许", "不许可", "불허", "거부", "refused", "rejected", "denied")
@@ -35,6 +56,11 @@ KOREA_DATED_REVIEW_STATUS_PATTERN = re.compile(r"审核中\s*\(\s*\d{4}\.\d{2}\.
 
 def normalizeText(value: str) -> str:
     return " ".join(value.split())
+
+
+def encryptKoreaValue(value: Any) -> str:
+    text = str(value or "")
+    return encryptSecret(text) if text else ""
 
 
 def readDivText(soup: BeautifulSoup, elementId: str) -> str:
@@ -154,6 +180,13 @@ def queryKoreaVisaStatus(passportNumber: str, englishName: str, birthDate: str) 
 def decryptKoreaCaseRow(row: dict[str, Any]) -> dict[str, Any]:
     decrypted = dict(row)
     for column in SENSITIVE_KOREA_COLUMNS:
+        decrypted[column] = decryptIfNeeded(decrypted.get(column)) or ""
+    return decrypted
+
+
+def decryptKoreaHistoryRow(row: dict[str, Any]) -> dict[str, Any]:
+    decrypted = dict(row)
+    for column in SENSITIVE_KOREA_HISTORY_COLUMNS:
         decrypted[column] = decryptIfNeeded(decrypted.get(column)) or ""
     return decrypted
 
@@ -439,14 +472,14 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
                     (
                         caseId,
                         snapshotHash,
-                        str(result.get("application_no", "")),
-                        str(result.get("application_date", "")),
-                        str(result.get("entry_purpose", "")),
-                        str(result.get("visa_type", "")),
-                        str(result.get("stay_qualification", "")),
-                        str(result.get("entry_expiry_date", "")),
+                        encryptKoreaValue(result.get("application_no")),
+                        encryptKoreaValue(result.get("application_date")),
+                        encryptKoreaValue(result.get("entry_purpose")),
+                        encryptKoreaValue(result.get("visa_type")),
+                        encryptKoreaValue(result.get("stay_qualification")),
+                        encryptKoreaValue(result.get("entry_expiry_date")),
                         int(bool(result.get("visa_certificate_available"))),
-                        str(result.get("status", "")),
+                        encryptKoreaValue(result.get("status")),
                         finishedIso,
                         encryptSecret(json.dumps(result, ensure_ascii=False, default=str)),
                         int(notificationSent),
@@ -478,14 +511,14 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
                     0 if isTerminalStatus else int(row["is_enabled"]),
                     triggerType,
                     snapshotHash,
-                    str(result.get("application_no", "")),
-                    str(result.get("application_date", "")),
-                    str(result.get("entry_purpose", "")),
-                    str(result.get("visa_type", "")),
-                    str(result.get("stay_qualification", "")),
-                    str(result.get("entry_expiry_date", "")),
+                    encryptKoreaValue(result.get("application_no")),
+                    encryptKoreaValue(result.get("application_date")),
+                    encryptKoreaValue(result.get("entry_purpose")),
+                    encryptKoreaValue(result.get("visa_type")),
+                    encryptKoreaValue(result.get("stay_qualification")),
+                    encryptKoreaValue(result.get("entry_expiry_date")),
                     int(bool(result.get("visa_certificate_available"))),
-                    str(result.get("status", "")),
+                    encryptKoreaValue(result.get("status")),
                     finishedIso,
                     caseId,
                 ),
@@ -530,6 +563,7 @@ def listKoreaHistory(caseId: int, userId: int | None = None) -> list[dict[str, A
             """,
             params,
         ).fetchall()
+    decryptedRows = [decryptKoreaHistoryRow(row) for row in rows]
     return [
         {
             "id": row["id"],
@@ -547,7 +581,7 @@ def listKoreaHistory(caseId: int, userId: int | None = None) -> list[dict[str, A
             "rawPayload": json.loads(decryptIfNeeded(row["raw_payload"]) or "{}"),
             "notificationSent": bool(row["notification_sent"]),
         }
-        for row in rows
+        for row in decryptedRows
     ]
 
 
@@ -762,6 +796,7 @@ def sendCurrentKoreaEmail(caseId: int, userId: int | None = None) -> dict[str, A
         ).fetchone()
     if not latest:
         return {"success": False, "error": "暂无韩国签证状态快照，请先立即查询一次"}
+    latest = decryptKoreaHistoryRow(latest)
     result = {
         "success": True,
         "application_no": latest["application_no"],
@@ -794,10 +829,21 @@ def migrateKoreaEncryptedFields() -> None:
             if assignments:
                 values.append(row["id"])
                 connection.execute(f"UPDATE korea_cases SET {', '.join(assignments)} WHERE id = ?", tuple(values))
-        for row in connection.execute("SELECT id, raw_payload FROM korea_status_history").fetchall():
+        for row in connection.execute("SELECT * FROM korea_status_history").fetchall():
+            assignments = []
+            values = []
+            for column in SENSITIVE_KOREA_HISTORY_COLUMNS:
+                value = row[column]
+                if value and not isEncryptedSecret(value):
+                    assignments.append(f"{column} = ?")
+                    values.append(encryptSecret(str(value)))
             value = row["raw_payload"]
             if value and not isEncryptedSecret(value):
+                assignments.append("raw_payload = ?")
+                values.append(encryptSecret(str(value)))
+            if assignments:
+                values.append(row["id"])
                 connection.execute(
-                    "UPDATE korea_status_history SET raw_payload = ? WHERE id = ?",
-                    (encryptSecret(str(value)), row["id"]),
+                    f"UPDATE korea_status_history SET {', '.join(assignments)} WHERE id = ?",
+                    tuple(values),
                 )

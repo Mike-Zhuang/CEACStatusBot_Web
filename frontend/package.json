@@ -10,14 +10,14 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.3",
-    "lucide-react": "^1.21.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "vite": "^8.0.16"
+    "lucide-react": "^1.27.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "vite": "^8.1.5"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

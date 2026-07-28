@@ -3284,7 +3284,15 @@ function SupportPanel(props: { t: (key: TranslationKey) => string; compact?: boo
   return (
     <section className={`support-card ${props.compact ? "compact" : ""}`}>
       <div className="support-card-layout">
-        <img src="/support/buy-me-a-coffee.jpg" alt={props.t("supportTitle")} />
+        <a
+          className="support-qr-link"
+          href="/support/buy-me-a-coffee.jpg"
+          target="_blank"
+          rel="noreferrer"
+          title={props.t("supportTitle")}
+        >
+          <img src="/support/buy-me-a-coffee.jpg" alt={props.t("supportTitle")} />
+        </a>
         <div className="support-copy">
           <div className="support-title">
             <span>{props.t("supportTitle")}</span>
