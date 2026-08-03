@@ -13,22 +13,22 @@ dependencies = [
     "apscheduler>=3.11.3",
     "beautifulsoup4>=4.15.0",
     "cryptography>=49.0.0",
-    "fastapi>=0.139.0",
+    "fastapi>=0.141.1",
     "httpx>=0.28.0",
     "lxml>=6.1.0",
     "numpy>=2.5.1",
-    "onnxruntime>=1.27.0",
+    "onnxruntime>=1.28.0",
     "pillow>=12.3.0",
     "pydantic[email]>=2.13.4",
     "python-dotenv>=1.2.2",
     "requests>=2.33.0",
-    "uvicorn[standard]>=0.50.0",
+    "uvicorn[standard]>=0.52.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-    "ruff>=0.15.17",
+    "ruff>=0.16.0",
 ]
 audit = [
     "pip-audit>=2.10.1",
