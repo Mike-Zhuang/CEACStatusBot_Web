@@ -177,7 +177,7 @@ requires-dist = [
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "requests", specifier = ">=2.33.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
 ]
 
 [package.metadata.requires-dev]
