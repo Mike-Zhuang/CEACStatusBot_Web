@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http.cookies import SimpleCookie
 
 import pytest
@@ -26,6 +26,7 @@ from CEACStatusBot.web.mailer import (
     enforceDailyEmailLimit,
     recordEmailDelivery,
     sendAccountRestrictionEmail,
+    sendAccountReviewResolutionEmail,
 )
 from CEACStatusBot.web.main import app, enforceDailyManualQueryLimit
 from CEACStatusBot.web.security import SESSION_COOKIE_NAME, getCurrentUser, setSessionCookie
@@ -296,7 +297,7 @@ def test_ircc_email_respects_linked_account_daily_email_quota(createUser) -> Non
         )
 
 
-def test_repeated_device_registration_only_places_new_account_in_review(createUser) -> None:
+def test_repeated_device_registration_only_records_an_observation(createUser) -> None:
     first = createUser(email="first@example.com")
     second = createUser(email="second@example.com")
     third = createUser(email="third@example.com")
@@ -320,9 +321,72 @@ def test_repeated_device_registration_only_places_new_account_in_review(createUs
         group = connection.execute(
             "SELECT enforcement_state FROM account_risk_groups ORDER BY id DESC LIMIT 1",
         ).fetchone()
-    assert [row["account_status"] for row in statuses] == ["active", "active", "review"]
+    assert [row["account_status"] for row in statuses] == ["active", "active", "active"]
     assert scope["scope"] == "standard"
     assert group["enforcement_state"] == "review"
+
+
+def test_high_velocity_fifth_device_registration_requires_review(createUser) -> None:
+    users = [createUser(email=f"device-{index}@example.com") for index in range(5)]
+    deviceHash = "same-device-hash"
+    with getConnection() as connection:
+        connection.execute(
+            "UPDATE users SET terms_acceptance_device_hash = ? WHERE id IN (?, ?, ?, ?)",
+            (deviceHash, *(user["id"] for user in users[:4])),
+        )
+        assert evaluateNewRegistrationAssociation(
+            connection,
+            userId=int(users[4]["id"]),
+            deviceHash=deviceHash,
+            ipHash="shared-ip-hash",
+        )
+        account = connection.execute(
+            "SELECT account_status FROM users WHERE id = ?",
+            (users[4]["id"],),
+        ).fetchone()
+        flag = connection.execute(
+            "SELECT risk_level, reason_code FROM account_risk_flags WHERE user_id = ?",
+            (users[4]["id"],),
+        ).fetchone()
+    assert account["account_status"] == "review"
+    assert dict(flag) == {
+        "risk_level": "review",
+        "reason_code": "repeated_device_registration_high_velocity",
+    }
+
+
+def test_fifth_device_registration_without_short_term_burst_stays_active(createUser) -> None:
+    users = [createUser(email=f"spread-device-{index}@example.com") for index in range(5)]
+    deviceHash = "same-device-hash"
+    oldCreatedAt = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0).isoformat()
+    with getConnection() as connection:
+        connection.execute(
+            """
+            UPDATE users
+            SET terms_acceptance_device_hash = ?, created_at = ?
+            WHERE id IN (?, ?, ?, ?)
+            """,
+            (deviceHash, oldCreatedAt, *(user["id"] for user in users[:4])),
+        )
+        assert evaluateNewRegistrationAssociation(
+            connection,
+            userId=int(users[4]["id"]),
+            deviceHash=deviceHash,
+            ipHash="shared-ip-hash",
+        )
+        account = connection.execute(
+            "SELECT account_status FROM users WHERE id = ?",
+            (users[4]["id"],),
+        ).fetchone()
+        flag = connection.execute(
+            "SELECT risk_level, reason_code FROM account_risk_flags WHERE user_id = ?",
+            (users[4]["id"],),
+        ).fetchone()
+    assert account["account_status"] == "active"
+    assert dict(flag) == {
+        "risk_level": "watch",
+        "reason_code": "repeated_device_registration_watch",
+    }
 
 
 def test_restricted_account_can_submit_appeal_but_cannot_use_query_api(createUser) -> None:
@@ -464,6 +528,37 @@ def test_account_restriction_notice_does_not_consume_normal_email_quota(createUs
             emailType="account_restriction",
             recipient=str(user["email"]),
             subject=f"限制通知 {index}",
+        )
+    enforceDailyEmailLimit(int(user["id"]))
+
+
+def test_account_review_resolution_email_is_logged_without_consuming_normal_quota(createUser, monkeypatch) -> None:
+    user = createUser()
+    sent: list[tuple[str, str, str]] = []
+
+    def fakeSend(toEmail: str, subject: str, body: str, **_: object) -> bool:
+        sent.append((toEmail, subject, body))
+        return True
+
+    monkeypatch.setattr("CEACStatusBot.web.mailer.sendSystemEmail", fakeSend)
+    assert sendAccountReviewResolutionEmail(userId=int(user["id"]), recipient=str(user["email"]))
+    assert len(sent) == 1
+    assert "疑似中介批量注册" in sent[0][2]
+    assert "incorrectly placed under manual review" in sent[0][2]
+    with getConnection() as connection:
+        row = connection.execute(
+            "SELECT email_type, body_encrypted FROM email_delivery_logs WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+            (user["id"],),
+        ).fetchone()
+    assert row["email_type"] == "account_review_resolution"
+    assert "已恢复正常访问" in (decryptIfNeeded(row["body_encrypted"]) or "")
+    for index in range(getSettings().standardDailyEmailLimit):
+        recordEmailDelivery(
+            userId=int(user["id"]),
+            caseId=None,
+            emailType="account_review_resolution",
+            recipient=str(user["email"]),
+            subject=f"审核说明 {index}",
         )
     enforceDailyEmailLimit(int(user["id"]))
 

@@ -17,6 +17,14 @@ ACCOUNT_STATUS_VALUES = {ACCOUNT_STATUS_ACTIVE, ACCOUNT_STATUS_REVIEW, ACCOUNT_S
 RISK_GROUP_STATE_REVIEW = "review"
 RISK_GROUP_STATE_ENFORCED = "enforced"
 
+# 同设备本身可能来自家庭电脑、共享浏览器或公共设备，不能直接视为滥用。
+# 只有账号数量较多且注册时间高度集中时，才限制新账号进入人工审核。
+DEVICE_ASSOCIATION_WINDOW_DAYS = 30
+DEVICE_ASSOCIATION_OBSERVE_ACCOUNT_COUNT = 3
+DEVICE_ASSOCIATION_REVIEW_ACCOUNT_COUNT = 5
+DEVICE_ASSOCIATION_BURST_WINDOW_HOURS = 24
+DEVICE_ASSOCIATION_BURST_ACCOUNT_COUNT = 3
+
 ACCOUNT_RESTRICTED_MESSAGE = "账号当前无法使用查询服务。如需协助，请提交申诉。"
 GROUP_QUOTA_MESSAGE = "当前账号或关联账号已达到可用档案额度，请联系管理员处理。"
 
@@ -484,13 +492,16 @@ def evaluateNewRegistrationAssociation(
     deviceHash: str,
     ipHash: str,
 ) -> bool:
-    """仅在同一设备短期创建第三个标准账号时进入人工审核，避免把共享网络直接当作违规。"""
+    """记录同设备关联；仅在数量和短时集中注册同时命中时进入人工审核。"""
+    # 保留 IP 参数以兼容注册调用，但共享网络误伤率高，不参与自动限制判定。
+    _ = ipHash
     if not deviceHash:
         return False
-    cutoff = (datetime.now(UTC) - timedelta(days=30)).replace(microsecond=0).isoformat()
+    now = datetime.now(UTC).replace(microsecond=0)
+    cutoff = (now - timedelta(days=DEVICE_ASSOCIATION_WINDOW_DAYS)).isoformat()
     relatedRows = connection.execute(
         """
-        SELECT DISTINCT u.id
+        SELECT DISTINCT u.id, u.created_at
         FROM users u
         LEFT JOIN user_sessions s ON s.user_id = u.id
         WHERE u.id != ?
@@ -505,9 +516,58 @@ def evaluateNewRegistrationAssociation(
         (userId, cutoff, deviceHash, deviceHash),
     ).fetchall()
     relatedIds = tuple(sorted({int(row["id"]) for row in relatedRows}))
-    if len(relatedIds) < 2:
+    relatedAccountCount = len(relatedIds) + 1
+    if relatedAccountCount < DEVICE_ASSOCIATION_OBSERVE_ACCOUNT_COUNT:
         return False
+
     nowIso = _nowIso()
+    burstCutoff = now - timedelta(hours=DEVICE_ASSOCIATION_BURST_WINDOW_HOURS)
+    burstRelatedAccountCount = 1
+    for row in relatedRows:
+        createdAt = str(row["created_at"] or "")
+        try:
+            parsedCreatedAt = datetime.fromisoformat(createdAt.replace("Z", "+00:00"))
+            if parsedCreatedAt.tzinfo is None:
+                parsedCreatedAt = parsedCreatedAt.replace(tzinfo=UTC)
+        except ValueError:
+            continue
+        if parsedCreatedAt >= burstCutoff:
+            burstRelatedAccountCount += 1
+
+    needsReview = (
+        relatedAccountCount >= DEVICE_ASSOCIATION_REVIEW_ACCOUNT_COUNT
+        and burstRelatedAccountCount >= DEVICE_ASSOCIATION_BURST_ACCOUNT_COUNT
+    )
+    if not needsReview:
+        setUserRiskFlag(
+            connection,
+            userId=userId,
+            riskLevel="watch",
+            reasonCode="repeated_device_registration_watch",
+            adminNote=(
+                "自动观察规则：30 天内同一设备存在多个标准账号。"
+                "仅记录关联，不限制新账号，也不启用关联额度。"
+            ),
+        )
+        createRiskGroup(
+            connection,
+            userIds=(*relatedIds, userId),
+            label="自动关联观察组",
+            reasonCode="repeated_device_registration_watch",
+            adminNote="仅同设备关联，未命中集中注册条件；不限制成员账号。",
+            createdByUserId=None,
+            enforcementState=RISK_GROUP_STATE_REVIEW,
+            suspendMembers=False,
+            evidenceType="shared_device",
+        )
+        _recordAccountEvent(
+            connection,
+            eventType="registration_association_observed",
+            userId=userId,
+            detail="repeated_device_registration_watch",
+        )
+        return True
+
     connection.execute(
         "UPDATE users SET account_status = ?, updated_at = ? WHERE id = ?",
         (ACCOUNT_STATUS_REVIEW, nowIso, userId),
@@ -516,14 +576,17 @@ def evaluateNewRegistrationAssociation(
         connection,
         userId=userId,
         riskLevel="review",
-        reasonCode="repeated_device_registration",
-        adminNote="自动规则：30 天内同一设备注册第三个或更多标准账号，等待人工审核。",
+        reasonCode="repeated_device_registration_high_velocity",
+        adminNote=(
+            "自动规则：30 天内同一设备注册多个标准账号，且 24 小时内存在集中注册，"
+            "等待人工审核。"
+        ),
     )
     createRiskGroup(
         connection,
         userIds=(*relatedIds, userId),
         label="自动关联审核组",
-        reasonCode="repeated_device_registration",
+        reasonCode="repeated_device_registration_high_velocity",
         adminNote="自动规则命中；未自动限制既有账号，也未启用关联额度。",
         createdByUserId=None,
         enforcementState=RISK_GROUP_STATE_REVIEW,
@@ -534,7 +597,7 @@ def evaluateNewRegistrationAssociation(
         connection,
         eventType="registration_review_required",
         userId=userId,
-        detail="repeated_device_registration",
+        detail="repeated_device_registration_high_velocity",
     )
     return True
 

@@ -366,6 +366,53 @@ def sendAccountRestrictionEmail(
     return delivered
 
 
+def sendAccountReviewResolutionEmail(*, userId: int, recipient: str) -> bool:
+    """说明误触发审核已纠正，不占用档案状态通知额度。"""
+    subject = "[CEACStatusBot] 关于此前人工审核的说明 / Update on your account review"
+    body = "\n".join(
+        [
+            "账号服务状态：已恢复正常访问",
+            "",
+            "近期网站检测到疑似中介批量注册多个账号的行为。为保护查询资源和正常用户的使用，"
+            "系统曾临时收紧同一设备重复注册的自动审核规则。",
+            "",
+            "该规则设置得过于严格，你的账号因此被误触发人工审核。我们已完成核对并调整规则："
+            "单纯的设备关联不再直接限制账号；只有较多账号且伴随短时间集中注册等更强信号时，"
+            "新账号才会进入人工审核。",
+            "",
+            "你的账号、档案和历史记录均已保留并恢复正常访问。无需回复本邮件，也无需提供密码、"
+            "护照号、UID/HAL 或 IRCC Portal 凭据。对此带来的不便，我们深表歉意。",
+            f"登录入口：{getSettings().appBaseUrl}",
+            "",
+            "Account status: normal access restored",
+            "",
+            "We recently detected suspected bulk account registrations, including activity consistent with intermediary-operated registrations. "
+            "To protect query capacity and normal users, we temporarily made the automatic review rule for repeated registrations from the same device too strict.",
+            "",
+            "Your account was incorrectly placed under manual review by that rule. We have completed a review and adjusted the rule: "
+            "a device association alone will no longer restrict an account. A new account will be reviewed only when a larger number of associated accounts and stronger signals, such as concentrated registrations in a short period, are both present.",
+            "",
+            "Your account, profiles, and history have been retained and normal access has been restored. You do not need to reply or provide a password, passport number, UID/HAL, or IRCC Portal credentials. We apologize for the inconvenience.",
+            f"Sign in: {getSettings().appBaseUrl}",
+        ],
+    )
+    try:
+        delivered = sendSystemEmail(recipient, subject, body, htmlBody=buildEmailHtml(body))
+    except Exception as exc:
+        print(f"[mail] Account review resolution notice failed for user {userId}: {type(exc).__name__}")
+        return False
+    if delivered:
+        recordEmailDelivery(
+            userId=userId,
+            caseId=None,
+            emailType="account_review_resolution",
+            recipient=recipient,
+            subject=subject,
+            body=body,
+        )
+    return delivered
+
+
 def enforceDailyEmailLimit(userId: int | None, connection: Any | None = None) -> None:
     if userId is None:
         return
@@ -385,7 +432,7 @@ def enforceDailyEmailLimit(userId: int | None, connection: Any | None = None) ->
             SELECT COUNT(*) AS email_count
             FROM email_delivery_logs
             WHERE user_id IN ({placeholders})
-              AND email_type != 'account_restriction'
+              AND email_type NOT IN ('account_restriction', 'account_review_resolution')
               AND created_at >= ?
               AND created_at < ?
             """,
