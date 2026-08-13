@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from .account_controls import isUserAccountActive
 from .database import getConnection, utcNowIso
 from .mailer import (
     sendPassportSlotLongNoSlotNoticeEmail,
@@ -626,9 +627,11 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
     with getConnection() as connection:
         row = connection.execute(
             """
-            SELECT m.*, c.user_id, c.display_name, c.application_num, c.receive_email, c.sender_mode
+            SELECT m.*, c.user_id, c.display_name, c.application_num, c.receive_email, c.sender_mode,
+                   u.account_status, u.role
             FROM passport_slot_monitors m
             JOIN ceac_cases c ON c.id = m.case_id
+            JOIN users u ON u.id = c.user_id
             WHERE m.case_id = ?
             """,
             (caseId,),
@@ -636,6 +639,8 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
         smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (row["user_id"],)).fetchone() if row else None
     if not row:
         raise RuntimeError("护照预约监控不存在")
+    if row["role"] != "admin" and str(row.get("account_status") or "active") != "active":
+        return {"success": False, "changed": False, "error": "账号当前不可用，查询已停止。"}
     identifier = decryptIfNeeded(row["identifier_encrypted"]) or ""
     previousResultJson = decryptIfNeeded(row.get("last_result_json") or "") or ""
     previousResult = json.loads(previousResultJson) if previousResultJson else {}
@@ -716,6 +721,17 @@ def runPassportSlotQuery(caseId: int, triggerType: str = "passport_slot_automati
     )
 
     with getConnection() as connection:
+        # GTS 请求完成前账号可能已被限制；此时不得写回 slot 结果或重新启用监控。
+        if not isUserAccountActive(int(row["user_id"]), connection):
+            return {
+                "success": False,
+                "changed": False,
+                "notified": False,
+                "slotCount": 0,
+                "slotStatus": PASSPORT_SLOT_STATUS_UNKNOWN,
+                "error": "账号当前不可用，查询结果已丢弃。",
+                "result": {},
+            }
         longNoSlotStopAt: str | None = None
         if shouldNotify:
             try:
@@ -918,7 +934,9 @@ def enqueuePassportSlotQuery(caseId: int, triggerType: str, userId: int | None =
             SELECT m.id
             FROM passport_slot_monitors m
             JOIN ceac_cases c ON c.id = m.case_id
+            JOIN users u ON u.id = c.user_id
             WHERE m.case_id = ? {userFilter}
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
             """,
             params,
         ).fetchone()
@@ -1014,7 +1032,10 @@ def enqueueDuePassportSlotMonitors(limit: int = 20) -> list[dict[str, Any]]:
             """
             SELECT m.case_id
             FROM passport_slot_monitors m
+            JOIN ceac_cases c ON c.id = m.case_id
+            JOIN users u ON u.id = c.user_id
             WHERE m.is_enabled = 1
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
               AND m.next_check_at IS NOT NULL
               AND m.next_check_at <= ?
               AND NOT EXISTS (

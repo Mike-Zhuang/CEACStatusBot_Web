@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from CEACStatusBot.web.main import app
-from CEACStatusBot.web.security_guard import enforceAuthCodeLimits, enforceRateLimit
+from CEACStatusBot.web.security_guard import enforceAuthCodeLimits, enforceRateLimit, requestIp
 
 
 def buildRequest() -> Request:
@@ -58,3 +58,32 @@ def test_auth_code_rate_limit_rejects_excess_requests() -> None:
     with pytest.raises(HTTPException) as excInfo:
         enforceAuthCodeLimits(request, "person@example.test", "register")
     assert excInfo.value.status_code == 429
+
+
+def test_trusted_proxy_prefers_valid_x_real_ip_over_client_supplied_forwarded_for() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/health",
+            "headers": [
+                (b"x-forwarded-for", b"198.51.100.99, 203.0.113.10"),
+                (b"x-real-ip", b"203.0.113.10"),
+            ],
+            "client": ("127.0.0.1", 1234),
+        }
+    )
+    assert requestIp(request) == "203.0.113.10"
+
+
+def test_trusted_proxy_forwarded_for_fallback_uses_last_valid_hop() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/health",
+            "headers": [(b"x-forwarded-for", b"forged-value, 198.51.100.99, 203.0.113.10")],
+            "client": ("127.0.0.1", 1234),
+        }
+    )
+    assert requestIp(request) == "203.0.113.10"

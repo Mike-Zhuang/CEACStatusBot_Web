@@ -416,3 +416,84 @@ class WorkerPriorityPatch(SecureModel):
 
 class AccountTierPatch(SecureModel):
     accountTier: str = Field(pattern="^(standard|premium)$")
+
+
+def validateAccountControlText(value: str, fieldName: str, *, minimum: int = 0, maximum: int = 2000) -> str:
+    normalized = value.strip()
+    if len(normalized) < minimum or len(normalized) > maximum:
+        raise ValueError(f"{fieldName} 长度不符合要求")
+    if "\x00" in normalized:
+        raise ValueError(f"{fieldName} 包含不支持的字符")
+    return normalized
+
+
+class AccountAppealRequest(SecureModel):
+    message: str = Field(min_length=10, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def validateMessage(cls, value: str) -> str:
+        return validateAccountControlText(value, "申诉说明", minimum=10)
+
+
+class AccountSuspendRequest(SecureModel):
+    reasonCode: str = Field(min_length=1, max_length=64, pattern="^[a-z0-9_-]+$")
+    adminNote: str = Field(default="", max_length=2000)
+
+    @field_validator("adminNote")
+    @classmethod
+    def validateAdminNote(cls, value: str) -> str:
+        return validateAccountControlText(value, "管理员备注")
+
+
+class AccountRestoreRequest(SecureModel):
+    removeFromEnforcedGroups: bool = False
+
+
+class AccountRiskFlagRequest(SecureModel):
+    riskLevel: str = Field(pattern="^(low|review|high)$")
+    reasonCode: str = Field(min_length=1, max_length=64, pattern="^[a-z0-9_-]+$")
+    adminNote: str = Field(default="", max_length=2000)
+
+    @field_validator("adminNote")
+    @classmethod
+    def validateAdminNote(cls, value: str) -> str:
+        return validateAccountControlText(value, "管理员备注")
+
+
+class RiskGroupCreateRequest(SecureModel):
+    userIds: list[int] = Field(min_length=1, max_length=50)
+    label: str = Field(min_length=1, max_length=120)
+    reasonCode: str = Field(min_length=1, max_length=64, pattern="^[a-z0-9_-]+$")
+    adminNote: str = Field(default="", max_length=2000)
+    enforcementState: str = Field(default="enforced", pattern="^(review|enforced)$")
+    sharedStandardProfileLimit: int = Field(default=1, ge=1, le=5)
+    suspendMembers: bool = False
+
+    @field_validator("label")
+    @classmethod
+    def validateLabel(cls, value: str) -> str:
+        return validateAccountControlText(value, "关联组名称", minimum=1, maximum=120)
+
+    @field_validator("adminNote")
+    @classmethod
+    def validateAdminNote(cls, value: str) -> str:
+        return validateAccountControlText(value, "管理员备注")
+
+    @model_validator(mode="after")
+    def validateUserIds(self) -> "RiskGroupCreateRequest":
+        if len(set(self.userIds)) != len(self.userIds):
+            raise ValueError("关联账号列表包含重复账号")
+        return self
+
+
+class AccountAppealReviewRequest(SecureModel):
+    decision: str = Field(pattern="^(approved|rejected)$")
+    reviewNote: str = Field(default="", max_length=2000)
+    adminNote: str = Field(default="", max_length=2000)
+    removeFromEnforcedGroups: bool = False
+
+    @field_validator("reviewNote", "adminNote")
+    @classmethod
+    def validateNotes(cls, value: str) -> str:
+        return validateAccountControlText(value, "申诉备注")

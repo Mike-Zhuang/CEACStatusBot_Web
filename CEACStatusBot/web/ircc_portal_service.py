@@ -13,17 +13,20 @@ from urllib.parse import urlparse
 import httpx
 from cryptography.hazmat.primitives import hashes
 
-from .case_service import PREMIUM_CASE_LIMIT, STANDARD_CASE_LIMIT, computeNextDailyCheckAt, nextProfileSortOrder, upsertSmtpConfig
+from .account_controls import enforceProfileActivationLimit, enforceProfileCreationLimit, isUserAccountActive
+from .case_service import computeNextDailyCheckAt, nextProfileSortOrder, upsertSmtpConfig
 from .database import getConnection, utcNowIso
 from .mailer import (
     buildEmailHtml,
     buildSupportFooterPlain,
+    enforceDailyEmailLimit,
     formatCaseEmailTime,
     formatEmailTime,
     formatEmailTextTimes,
     getSupportImagePath,
     getSystemSmtpConfig,
     getUserEmailTimezone,
+    ensureUserEmailDeliveryAllowed,
     recordEmailDelivery,
     sendEmail,
     SUPPORT_IMAGE_CONTENT_ID,
@@ -1378,31 +1381,19 @@ def getIrccCase(caseId: int, userId: int | None = None) -> dict[str, Any] | None
     return normalizeIrccCaseRow(row) if row else None
 
 
-def countUserProfiles(connection: Any, userId: int) -> int:
-    ceacRow = connection.execute("SELECT COUNT(*) AS case_count FROM ceac_cases WHERE user_id = ?", (userId,)).fetchone()
-    irccRow = connection.execute("SELECT COUNT(*) AS case_count FROM ircc_cases WHERE user_id = ?", (userId,)).fetchone()
-    koreaRow = connection.execute("SELECT COUNT(*) AS case_count FROM korea_cases WHERE user_id = ?", (userId,)).fetchone()
-    return (
-        int(ceacRow["case_count"] if ceacRow else 0)
-        + int(irccRow["case_count"] if irccRow else 0)
-        + int(koreaRow["case_count"] if koreaRow else 0)
-    )
-
-
 def createIrccCase(userId: int, payload: IrccCaseInput) -> dict[str, Any]:
     now = utcNowIso()
     if payload.emailNotificationsEnabled and not payload.receiveEmail:
         raise ValueError("开启邮件推送时必须填写接收提醒邮箱。")
+    with getConnection() as connection:
+        user = connection.execute("SELECT id FROM users WHERE id = ?", (userId,)).fetchone()
+        if not user:
+            raise ValueError("用户不存在")
+        enforceProfileCreationLimit(connection, userId)
     tokenCache = loginWithPassword(str(payload.portalEmail).lower(), payload.portalPassword)
     accountId = upsertIrccAccount(userId, str(payload.portalEmail), payload.portalPassword, tokenCache)
     with getConnection() as connection:
-        user = connection.execute("SELECT role, account_tier FROM users WHERE id = ?", (userId,)).fetchone()
-        if not user:
-            raise ValueError("用户不存在")
-        if user.get("role") != "admin":
-            profileLimit = PREMIUM_CASE_LIMIT if user.get("account_tier") == "premium" else STANDARD_CASE_LIMIT
-            if countUserProfiles(connection, userId) >= profileLimit:
-                raise ValueError(f"当前账号最多可添加 {profileLimit} 个档案，请联系管理员升级账号。")
+        enforceProfileCreationLimit(connection, userId)
         duplicate = next(
             (
                 row
@@ -1462,6 +1453,8 @@ def patchIrccCase(caseId: int, userId: int, payload: IrccCasePatch) -> dict[str,
         row = connection.execute("SELECT * FROM ircc_cases WHERE id = ? AND user_id = ?", (caseId, userId)).fetchone()
         if not row:
             return None
+        if data.get("isEnabled") is True and not current.get("isEnabled"):
+            enforceProfileActivationLimit(connection, userId, tableName="ircc_cases", profileId=caseId)
         nextAppId = data.get("appId")
         if nextAppId is not None and nextAppId != current.get("appId"):
             duplicate = next(
@@ -1545,6 +1538,8 @@ def sendIrccNotification(
     *,
     includeSupport: bool = False,
 ) -> None:
+    ensureUserEmailDeliveryAllowed(int(case["user_id"]), connection)
+    enforceDailyEmailLimit(int(case["user_id"]), connection)
     config = None
     if case["sender_mode"] == "custom" and smtpConfig:
         config = {
@@ -1723,9 +1718,11 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
     with getConnection() as connection:
         row = connection.execute(
             """
-            SELECT c.*, a.portal_email_encrypted, a.portal_password_encrypted, a.token_cache_encrypted
+            SELECT c.*, a.portal_email_encrypted, a.portal_password_encrypted, a.token_cache_encrypted,
+                   u.account_status, u.role
             FROM ircc_cases c
             JOIN ircc_portal_accounts a ON a.id = c.account_id
+            JOIN users u ON u.id = c.user_id
             WHERE c.id = ?
             """,
             (caseId,),
@@ -1743,6 +1740,8 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
         ).fetchone()
     if not row:
         raise RuntimeError("IRCC 档案不存在")
+    if row["role"] != "admin" and str(row.get("account_status") or "active") != "active":
+        return {"success": False, "changed": False, "error": "账号当前不可用，查询已停止。"}
     case = decryptIrccCaseRow(row)
     try:
         tokenCache = getAuthorizedToken(row)
@@ -1765,6 +1764,9 @@ def runIrccCaseQuery(caseId: int, triggerType: str = "ircc_automatic") -> dict[s
     finishedIso = finished.replace(microsecond=0).isoformat()
     durationMs = int((finished - started).total_seconds() * 1000)
     with getConnection() as connection:
+        # token 刷新或 IRCC API 请求期间账号可能被限制，不能继续保存或通知在途结果。
+        if not isUserAccountActive(int(row["user_id"]), connection):
+            return {"success": False, "changed": False, "notified": False, "error": "账号当前不可用，查询结果已丢弃。", "result": {}}
         currentCaseRow = connection.execute("SELECT is_enabled, email_notifications_enabled FROM ircc_cases WHERE id = ?", (caseId,)).fetchone()
         isEnabledNow = bool(currentCaseRow["is_enabled"]) if currentCaseRow else False
         emailNotificationsEnabledNow = bool(currentCaseRow["email_notifications_enabled"]) if currentCaseRow else False
@@ -1943,10 +1945,19 @@ def enqueueIrccCaseQuery(caseId: int, triggerType: str, userId: int | None = Non
     params: tuple[Any, ...] = (caseId,)
     userFilter = ""
     if userId is not None:
-        userFilter = "AND user_id = ?"
+        userFilter = "AND c.user_id = ?"
         params = (caseId, userId)
     with getConnection() as connection:
-        case = connection.execute(f"SELECT id FROM ircc_cases WHERE id = ? {userFilter}", params).fetchone()
+        case = connection.execute(
+            f"""
+            SELECT c.id
+            FROM ircc_cases c
+            JOIN users u ON u.id = c.user_id
+            WHERE c.id = ? {userFilter}
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
+            """,
+            params,
+        ).fetchone()
         if not case:
             return None
         existing = connection.execute(
@@ -1988,7 +1999,9 @@ def enqueueDueIrccCases(limit: int = 20) -> list[dict[str, Any]]:
                        LIMIT 1
                    ) AS latest_raw_payload
             FROM ircc_cases c
+            JOIN users u ON u.id = c.user_id
             WHERE c.is_enabled = 1
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
               AND c.next_check_at IS NOT NULL
               AND c.next_check_at <= ?
               AND NOT EXISTS (
@@ -2028,6 +2041,7 @@ def claimNextIrccQueryJob(workerId: str | None = None) -> dict[str, Any] | None:
             JOIN ircc_cases c ON c.id = j.case_id
             JOIN users u ON u.id = c.user_id
             WHERE j.status = 'queued'
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
             ORDER BY u.worker_priority ASC, j.id ASC
             LIMIT 1
             """,

@@ -72,6 +72,7 @@
   --semantic-success: #2d6a4f;
   --semantic-approved: #2d6a4f;
   --semantic-issued: #1f6c9f;
+  --warning: #9a6700;
   --semantic-success-surface: color-mix(in srgb, var(--semantic-success) 14%, var(--surface-2));
   --semantic-issued-surface: color-mix(in srgb, var(--semantic-issued) 14%, var(--surface-2));
   --semantic-danger-surface: color-mix(in srgb, var(--danger) 12%, var(--surface-2));
@@ -144,6 +145,7 @@
   --semantic-success: #346538;
   --semantic-approved: #346538;
   --semantic-issued: #1f6c9f;
+  --warning: #8a5a00;
   --semantic-success-surface: #edf3ec;
   --semantic-issued-surface: #e1f3fe;
   --semantic-danger-surface: #fdebec;
@@ -571,7 +573,7 @@ h1, h2, h3 {
 }
 
 /* Common */
-button, input, select {
+button, input, select, textarea {
   font: inherit;
 }
 
@@ -672,6 +674,68 @@ input:disabled {
   justify-content: flex-end;
 }
 
+/* 账号受限页只保留申诉和退出入口，避免暴露或误操作原有档案。 */
+.restricted-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  background: var(--canvas);
+}
+
+.restricted-panel {
+  width: min(640px, 100%);
+  margin: auto;
+  display: grid;
+  gap: var(--spacing-md);
+  padding: clamp(24px, 4vw, 40px);
+}
+
+.restricted-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.restricted-heading > svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--warning);
+}
+
+.restricted-heading .headline {
+  margin: 0;
+}
+
+.restricted-panel > .status-badge {
+  justify-self: start;
+}
+
+.restricted-appeal {
+  display: grid;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--hairline);
+}
+
+.restricted-appeal .panel-title {
+  margin: 0;
+}
+
+.restricted-appeal .subhead {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.restricted-appeal-status {
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--surface-2);
+}
+
 .auth-header {
   text-align: center;
   margin-bottom: 32px;
@@ -717,7 +781,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border: 1px solid var(--hairline);
   border-radius: 8px;
@@ -736,19 +801,27 @@ input[type="password"],
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--primary-focus);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-focus) 50%, transparent);
 }
 
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: none;
 }
 
 input:user-invalid:not(:focus):not(:placeholder-shown),
 select:user-invalid:not(:focus) {
   border-color: color-mix(in srgb, var(--danger) 60%, var(--hairline));
+}
+
+textarea {
+  min-height: 104px;
+  resize: vertical;
+  line-height: 1.5;
 }
 
 .checkbox {
@@ -855,6 +928,17 @@ select:user-invalid:not(:focus) {
 
 .button.tertiary:active:not(:disabled) {
   transform: scale(0.98);
+}
+
+.button.danger {
+  background: var(--semantic-danger-surface);
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--hairline));
+  color: var(--danger);
+}
+
+.button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--hairline));
 }
 
 .text-button {
@@ -1862,6 +1946,13 @@ select:user-invalid:not(:focus) {
   background: var(--surface-2);
 }
 
+.status-badge.warning,
+.status-stage.warning {
+  border-color: color-mix(in srgb, var(--warning) 46%, var(--hairline));
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-1));
+  color: var(--warning);
+}
+
 .status-badge.metric-status,
 .status-stage.metric-status {
   font-family: var(--font-serif);
@@ -2174,6 +2265,67 @@ select:user-invalid:not(:focus) {
 
 .admin-controls-row input {
   max-width: 160px;
+}
+
+.admin-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.admin-account-actions .checkbox {
+  margin-right: auto;
+  font-size: 12px;
+}
+
+.admin-risk-form {
+  display: grid;
+  gap: 12px;
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.admin-risk-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.admin-risk-options .checkbox {
+  font-size: 13px;
+}
+
+.admin-risk-group-list,
+.admin-appeal-list {
+  display: grid;
+  gap: 10px;
+  margin-top: var(--spacing-md);
+}
+
+.admin-risk-group-row,
+.admin-appeal-row {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--rounded-md);
+  background: var(--canvas);
+}
+
+.admin-risk-group-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.admin-risk-group-row strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.admin-appeal-row .field-sheet-row {
+  padding-block: 7px;
 }
 
 .case-list.compact {
@@ -2657,6 +2809,16 @@ select:user-invalid:not(:focus) {
     justify-items: start;
     text-align: left;
   }
+
+  .admin-account-actions .checkbox {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .admin-risk-group-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
 }
 
 .empty-state {
@@ -3135,6 +3297,14 @@ select:user-invalid:not(:focus) {
 
   .workspace {
     padding-inline: 12px;
+  }
+
+  .restricted-shell {
+    padding: 16px 12px;
+  }
+
+  .restricted-panel {
+    margin: 72px auto auto;
   }
 
   .auth-options,

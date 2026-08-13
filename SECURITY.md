@@ -18,7 +18,9 @@ Do not include real passport numbers, visa application numbers, portal credentia
 - Sensitive mutation APIs validate `Origin` / `Referer`. Production should trust only `https://ceac.mikezhuang.cn`.
 - Production cookies must use `HttpOnly + SameSite=Lax + Secure`.
 - The application issues an anonymous device cookie and persists hashed IP/device/account/email identifiers for throttling, login cooldowns, verification-code limits, and security-event auditing.
+- When traffic reaches the app through a trusted reverse proxy, the application prefers a validated `X-Real-IP`; it does not trust the first client-supplied `X-Forwarded-For` value.
 - Sessions are stored in the database. Cookies contain only random session tokens. Server-side revocation, idle expiry, and absolute expiry are supported.
+- An account restriction revokes active sessions, disables CEAC/GTS/IRCC/Korea automatic monitoring, fails queued jobs, and rechecks account state before an in-flight third-party response can be persisted or emailed. Profile data is retained for appeal and recovery.
 - API request bodies are size-limited. Host headers and security response headers are also enforced.
 - Browser-side password remembering is a convenience trade-off and should be used only on private devices.
 - Public traffic must use the HTTPS domain. Port `8010` is not a public entry point.
@@ -106,7 +108,8 @@ Default throttling policy:
 - Login attempts are limited by IP/device. Repeated email failures trigger cooldowns.
 - Registration and password-reset codes are limited by email and IP/device.
 - Authenticated APIs are limited by account and device, with separate Standard, Premium, and administrator quotas.
-- Manual CEAC/GTS queries and business emails retain account-level daily quotas.
+- Manual CEAC/GTS/IRCC/Korea queries and business emails retain account-level daily quotas. Administrators can apply a shared Standard quota only to confirmed linked-account groups; review-only groups do not change existing quotas.
+- Restricted accounts receive a neutral registered-email notice and may submit an appeal through the limited account page. Restoring access leaves all monitoring paused until the user explicitly re-enables it.
 
 ## Nginx Baseline
 

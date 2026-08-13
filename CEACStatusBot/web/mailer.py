@@ -10,12 +10,17 @@ from typing import Any
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .account_controls import getQuotaScope, isUserAccountActive
 from .config import getSettings
 from .database import getConnection, utcNowIso
 from .secrets import decryptIfNeeded, decryptSecret, encryptSecret
 
 
 class DailyEmailLimitExceeded(RuntimeError):
+    pass
+
+
+class EmailDeliverySuppressed(RuntimeError):
     pass
 
 
@@ -295,11 +300,11 @@ def sendEmail(
         client.quit()
 
 
-def sendSystemEmail(toEmail: str, subject: str, body: str, htmlBody: str | None = None, inlineImages: dict[str, Path] | None = None) -> None:
+def sendSystemEmail(toEmail: str, subject: str, body: str, htmlBody: str | None = None, inlineImages: dict[str, Path] | None = None) -> bool:
     config = getSystemSmtpConfig()
     if not config["fromEmail"] or not config["password"]:
         print("[mail] System email is not configured.")
-        return
+        return False
     renderedHtmlBody = htmlBody or buildEmailHtml(body)
     sendEmail(
         fromEmail=config["fromEmail"],
@@ -313,6 +318,52 @@ def sendSystemEmail(toEmail: str, subject: str, body: str, htmlBody: str | None 
         htmlBody=renderedHtmlBody,
         inlineImages=inlineImages,
     )
+    return True
+
+
+def sendAccountRestrictionEmail(
+    *,
+    userId: int,
+    recipient: str,
+    accountStatus: str,
+    restrictedAt: str,
+) -> bool:
+    """限制通知绕过普通通知额度，确保用户能获知暂停与申诉入口。"""
+    statusLabel = "等待人工审核" if accountStatus == "review" else "账号访问已受限"
+    subject = f"[CEACStatusBot] {statusLabel}"
+    formattedTime = formatEmailTime(restrictedAt, getUserEmailTimezone(userId))
+    body = "\n".join(
+        [
+            "账号服务状态：",
+            statusLabel,
+            "",
+            f"账号：{recipient}",
+            f"发生时间：{formattedTime}",
+            "",
+            "为保护服务稳定性和所有用户的正常使用，当前账号的查询服务已暂停。",
+            "你的档案和历史记录仍会保留；在恢复前，系统不会继续自动查询或发送档案状态通知。",
+            "",
+            "你可以登录 CEACStatusBot，在账号受限页面提交申诉，管理员会人工复核。",
+            f"登录入口：{getSettings().appBaseUrl}",
+            "",
+            "本邮件不会披露具体风控依据。请勿回复邮件发送密码、护照号、UID/HAL 或 IRCC Portal 凭据。",
+        ],
+    )
+    try:
+        delivered = sendSystemEmail(recipient, subject, body, htmlBody=buildEmailHtml(body))
+    except Exception as exc:
+        print(f"[mail] Account restriction notice failed for user {userId}: {type(exc).__name__}")
+        return False
+    if delivered:
+        recordEmailDelivery(
+            userId=userId,
+            caseId=None,
+            emailType="account_restriction",
+            recipient=recipient,
+            subject=subject,
+            body=body,
+        )
+    return delivered
 
 
 def enforceDailyEmailLimit(userId: int | None, connection: Any | None = None) -> None:
@@ -322,46 +373,40 @@ def enforceDailyEmailLimit(userId: int | None, connection: Any | None = None) ->
     now = datetime.now(UTC)
     todayStart = now.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrowStart = todayStart + timedelta(days=1)
-    if connection is not None:
-        user = connection.execute(
-            "SELECT role, account_tier FROM users WHERE id = ?",
-            (userId,),
-        ).fetchone()
-        if not user or user["role"] == "admin":
+    def enforce(activeConnection: Any) -> None:
+        scope = getQuotaScope(activeConnection, userId)
+        if scope["profileLimit"] is None:
             return
-        emailLimit = settings.premiumDailyEmailLimit if user["account_tier"] == "premium" else settings.standardDailyEmailLimit
-        row = connection.execute(
-            """
+        emailLimit = settings.premiumDailyEmailLimit if scope["accountTier"] == "premium" else settings.standardDailyEmailLimit
+        scopedIds = tuple(int(value) for value in scope["userIds"])
+        placeholders = ", ".join("?" for _ in scopedIds)
+        row = activeConnection.execute(
+            f"""
             SELECT COUNT(*) AS email_count
             FROM email_delivery_logs
-            WHERE user_id = ?
+            WHERE user_id IN ({placeholders})
+              AND email_type != 'account_restriction'
               AND created_at >= ?
               AND created_at < ?
             """,
-            (userId, todayStart.isoformat(), tomorrowStart.isoformat()),
+            (*scopedIds, todayStart.isoformat(), tomorrowStart.isoformat()),
         ).fetchone()
-    else:
-        with getConnection() as localConnection:
-            user = localConnection.execute(
-                "SELECT role, account_tier FROM users WHERE id = ?",
-                (userId,),
-            ).fetchone()
-            if not user or user["role"] == "admin":
-                return
-            emailLimit = settings.premiumDailyEmailLimit if user["account_tier"] == "premium" else settings.standardDailyEmailLimit
-            row = localConnection.execute(
-                """
-                SELECT COUNT(*) AS email_count
-                FROM email_delivery_logs
-                WHERE user_id = ?
-                  AND created_at >= ?
-                  AND created_at < ?
-                """,
-                (userId, todayStart.isoformat(), tomorrowStart.isoformat()),
-            ).fetchone()
-    emailCount = int(row["email_count"] if row else 0)
-    if emailCount >= emailLimit:
-        raise DailyEmailLimitExceeded(f"今日邮件发送数量已达上限（{emailLimit} 封），请明天再试。")
+        emailCount = int(row["email_count"] if row else 0)
+        if emailCount >= emailLimit:
+            raise DailyEmailLimitExceeded(f"今日邮件发送数量已达上限（{emailLimit} 封），请明天再试。")
+
+    if connection is not None:
+        enforce(connection)
+        return
+    with getConnection() as localConnection:
+        enforce(localConnection)
+
+
+def ensureUserEmailDeliveryAllowed(userId: int | None, connection: Any | None = None) -> None:
+    if userId is None:
+        return
+    if not isUserAccountActive(userId, connection):
+        raise EmailDeliverySuppressed("账号当前不可用，已跳过邮件发送。")
 
 
 def recordEmailDelivery(
@@ -820,6 +865,7 @@ def sendCaseEmail(
 ) -> None:
     userId = int(case["user_id"]) if case.get("user_id") is not None else None
     caseId = int(case["id"]) if case.get("id") is not None else None
+    ensureUserEmailDeliveryAllowed(userId, connection)
     enforceDailyEmailLimit(userId, connection)
     inlineImages = {SUPPORT_IMAGE_CONTENT_ID: getSupportImagePath()} if includeSupport else None
     plainBody = body + (buildSupportFooterPlain() if includeSupport else "")

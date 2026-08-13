@@ -1,12 +1,16 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
+  Flag,
   LogOut,
   Moon,
   Plus,
+  ShieldAlert,
   Sun,
   Trash2,
+  UsersRound,
   X,
 } from "lucide-react";
 import { ceacLocations } from "./locations";
@@ -24,6 +28,7 @@ type LanguageMode = "zh" | "en";
 type ViewMode = "dashboard" | "profile" | "admin";
 type AuthMode = "login" | "register" | "forgot";
 type AccountTier = "standard" | "premium";
+type AccountStatus = "active" | "review" | "suspended";
 type MessageScope = ViewMode | "auth";
 type ProfileCountry = "us" | "ca" | "kr";
 type QueryTriggerType = "manual" | "automatic" | "passport_slot_manual" | "passport_slot_automatic" | "ircc_manual" | "ircc_automatic" | "korea_manual" | "korea_automatic" | "unknown";
@@ -36,6 +41,8 @@ interface User {
   is_email_verified: number;
   timezone: string;
   created_at: string;
+  account_status: AccountStatus;
+  account_restricted?: boolean;
 }
 
 interface CeacCase {
@@ -382,6 +389,46 @@ interface AdminUser {
   updated_at: string;
   case_count: number;
   last_checked_at: string | null;
+  account_status: AccountStatus;
+  suspended_at: string | null;
+  suspension_reason: string;
+  riskGroups: Array<{ id: number; label: string; enforcementState: "review" | "enforced" }>;
+  riskLevel: string;
+  riskReasonCode: string;
+  latestAppealStatus: string;
+}
+
+interface AccountAppeal {
+  id: number;
+  userId: number;
+  status: "pending" | "approved" | "rejected";
+  submittedAt: string;
+  reviewedAt: string | null;
+  reviewedByUserId?: number | null;
+  reviewedByEmail?: string;
+  reviewNote: string;
+  message?: string;
+  adminNote?: string;
+}
+
+interface AdminRiskGroup {
+  id: number;
+  label: string;
+  reasonCode: string;
+  adminNote: string;
+  enforcementState: "review" | "enforced";
+  sharedStandardProfileLimit: number;
+  createdByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  members: Array<{
+    id: number;
+    email: string;
+    accountTier: AccountTier;
+    accountStatus: AccountStatus;
+    evidenceType: string;
+    addedAt: string;
+  }>;
 }
 
 interface AdminCase extends CeacCase {
@@ -437,6 +484,16 @@ interface SystemEmailForm {
   port: string;
   useSsl: boolean;
   password: string;
+}
+
+interface RiskGroupCreatePayload {
+  userIds: number[];
+  label: string;
+  reasonCode: string;
+  adminNote: string;
+  enforcementState: "review" | "enforced";
+  sharedStandardProfileLimit: number;
+  suspendMembers: boolean;
 }
 
 interface ProfileForm {
@@ -564,7 +621,7 @@ const icpRecordNumber = import.meta.env.VITE_ICP_RECORD_NUMBER as string | undef
 const QUERY_JOB_POLL_INTERVAL_MS = 2000;
 const QUERY_JOB_QUEUE_WAIT_MS = 180000;
 const ADMIN_QUEUE_REFRESH_INTERVAL_MS = 3000;
-const USER_TERMS_VERSION_LABEL = "2026-05-15";
+const USER_TERMS_VERSION_LABEL = "2026-08-12";
 
 const legalTerms = {
   en: [
@@ -615,6 +672,7 @@ const legalTerms = {
       title: "7. Service Changes, Limits, and Suspension",
       body: [
         "The site may adjust polling frequency, quotas, worker priority, notification behavior, security rules, supported features, or availability at any time for compliance, stability, cost control, anti-abuse, third-party limitations, or maintenance needs.",
+        "To protect service stability, an account may be placed under manual review or restricted. Restriction revokes active sessions and pauses automatic checks and status emails without deleting profiles or history. The registered email address receives a neutral notice, and the account owner can sign in to submit an appeal. Restoring access does not automatically restart monitoring. Confirmed related Standard accounts may share quotas; a review-only association does not by itself change an existing account's quota.",
         "Nonprofit support or Premium status is not a purchase of official service and does not create any guarantee regarding official systems, visa outcomes, passport delivery, appointment slots, or booking results.",
       ],
     },
@@ -674,6 +732,7 @@ const legalTerms = {
       title: "七、服务调整、限额与暂停",
       body: [
         "出于合规、稳定性、成本控制、防滥用、第三方限制或维护需要，本站可随时调整查询频率、账号额度、Worker 优先级、通知策略、安全规则、功能范围或服务可用性。",
+        "为保护服务稳定性，账号可能进入人工复核或被限制。限制后会撤销现有会话、暂停自动查询和档案状态邮件，但不会删除档案或历史；系统会向注册邮箱发送中性通知，账号本人可登录提交申诉。恢复访问不会自动重新开启监控。经确认的关联普通账号可能共用额度；仅处于复核状态的关联不会自行改变既有账号额度。",
         "自愿赞赏或 Premium 状态不构成购买官方服务，也不形成对官方系统、签证结果、护照送达、slot 可用性或预约成功的任何保证。",
       ],
     },
@@ -696,6 +755,48 @@ const translations = {
     accountTierStandard: "Standard",
     accountTierPremium: "Premium",
     accountTierSaved: "Account tier saved.",
+    accountStatus: "Account status",
+    accountStatusActive: "Active",
+    accountStatusReview: "Under review",
+    accountStatusSuspended: "Restricted",
+    accountRestrictedTitle: "Account access is restricted",
+    accountRestrictedReviewBody: "This account is awaiting a manual review. Profile data is retained and no automatic queries will run while access is restricted.",
+    accountRestrictedSuspendedBody: "This account cannot currently use query services. Profile data is retained and automatic monitoring has been paused.",
+    accountAppeal: "Appeal",
+    accountAppealBody: "Briefly explain the situation. The administrator can restore access after review. Do not include passwords, passport numbers, UID/HAL, or IRCC credentials.",
+    accountAppealPlaceholder: "Explain why access should be restored",
+    accountAppealSubmit: "Submit appeal",
+    accountAppealSubmitted: "Appeal submitted. Please wait for review.",
+    accountAppealPending: "Appeal pending",
+    accountAppealApproved: "Appeal approved",
+    accountAppealRejected: "Appeal not approved",
+    accountAppealReviewedAt: "Reviewed",
+    accountAppealMessage: "Appeal message",
+    accountAppealReviewNote: "Review note",
+    accountAccessRestored: "Account restored.",
+    accountSuspended: "Account restricted and monitoring paused.",
+    accountRiskGroups: "Linked account groups",
+    accountRiskGroupCreate: "Create linked group",
+    accountRiskGroupLabel: "Group label",
+    accountRiskReason: "Reason code",
+    accountRiskNote: "Administrator note",
+    accountRiskEnforced: "Apply shared quota",
+    accountRiskSuspendMembers: "Restrict selected accounts and pause monitoring",
+    accountRiskSelected: "Selected accounts",
+    accountRiskGroupCreated: "Linked account group saved.",
+    accountRiskFlag: "Flag for review",
+    accountSuspend: "Restrict account",
+    accountSuspendConfirmTitle: "Restrict this account?",
+    accountSuspendConfirmBody: "This immediately revokes current sessions, pauses all monitoring, and sends a neutral restriction email. Profile data remains retained.",
+    accountRiskGroupSuspendConfirmTitle: "Restrict selected accounts?",
+    accountRiskGroupSuspendConfirmBody: "This creates the linked group, revokes sessions, pauses monitoring for all selected accounts, and sends each account a neutral restriction email.",
+    accountRiskGroupSuspendConfirmAction: "Create group and restrict",
+    accountRestore: "Restore access",
+    accountRemoveFromGroup: "Remove from enforced group",
+    accountAppeals: "Account appeals",
+    accountAppealsEmpty: "No account appeals.",
+    approve: "Approve",
+    reject: "Reject",
     accountTierLimits: "Standard: 1 profile with automatic CEAC checks about once per hour; after Issued, checks slow to once per day and stop after one week. Manual refresh is limited to 1/day, with limited daily emails. Premium: 5 profiles with higher query and email quotas.",
     accountTierCurrent: "Current tier",
     appSubtitle: "Visa status monitoring, query history, and email delivery.",
@@ -980,6 +1081,48 @@ const translations = {
     accountTierStandard: "普通账号",
     accountTierPremium: "Premium 账号",
     accountTierSaved: "账号等级已保存。",
+    accountStatus: "账号状态",
+    accountStatusActive: "正常",
+    accountStatusReview: "审核中",
+    accountStatusSuspended: "已限制",
+    accountRestrictedTitle: "账号当前无法使用查询服务",
+    accountRestrictedReviewBody: "该账号正在等待人工审核。档案数据会被保留，受限期间不会执行自动查询。",
+    accountRestrictedSuspendedBody: "该账号当前无法使用查询服务。档案数据会被保留，自动监控已暂停。",
+    accountAppeal: "申诉恢复",
+    accountAppealBody: "请简要说明情况；管理员审核后可以恢复访问。请勿填写密码、护照号、UID/HAL 或 IRCC 凭证。",
+    accountAppealPlaceholder: "说明希望恢复访问的原因",
+    accountAppealSubmit: "提交申诉",
+    accountAppealSubmitted: "申诉已提交，请等待管理员审核。",
+    accountAppealPending: "申诉审核中",
+    accountAppealApproved: "申诉已通过",
+    accountAppealRejected: "申诉暂未通过",
+    accountAppealReviewedAt: "处理时间",
+    accountAppealMessage: "申诉说明",
+    accountAppealReviewNote: "处理说明",
+    accountAccessRestored: "账号访问已恢复。",
+    accountSuspended: "账号已限制，自动监控已暂停。",
+    accountRiskGroups: "关联账号组",
+    accountRiskGroupCreate: "创建关联组",
+    accountRiskGroupLabel: "关联组名称",
+    accountRiskReason: "原因代码",
+    accountRiskNote: "管理员备注",
+    accountRiskEnforced: "启用关联额度",
+    accountRiskSuspendMembers: "限制所选账号并暂停监控",
+    accountRiskSelected: "已选择账号",
+    accountRiskGroupCreated: "关联账号组已保存。",
+    accountRiskFlag: "标记待审核",
+    accountSuspend: "限制账号",
+    accountSuspendConfirmTitle: "确认限制该账号？",
+    accountSuspendConfirmBody: "这会立即撤销当前会话、暂停所有监控，并发送中性的账号限制通知邮件；档案数据会被保留。",
+    accountRiskGroupSuspendConfirmTitle: "确认限制所选账号？",
+    accountRiskGroupSuspendConfirmBody: "这会创建关联账号组、撤销所选账号会话、暂停全部监控，并分别发送中性的账号限制通知邮件。",
+    accountRiskGroupSuspendConfirmAction: "创建关联组并限制账号",
+    accountRestore: "恢复访问",
+    accountRemoveFromGroup: "从已启用关联组中移除",
+    accountAppeals: "账号申诉",
+    accountAppealsEmpty: "暂无账号申诉。",
+    approve: "通过",
+    reject: "驳回",
     accountTierLimits: "普通账号：1 个档案，CEAC 会自动约每小时查询一次；Issued 后降为每天一次，并在一周后自动停止。手动立即刷新限每天 1 次，并限制每日邮件数量；Premium：5 个档案，查询和邮件额度都更高。",
     accountTierCurrent: "当前账号等级",
     appSubtitle: "签证状态监控、查询历史与邮件提醒。",
@@ -1524,6 +1667,10 @@ export function App() {
   const [koreaCases, setKoreaCases] = useState<KoreaCase[]>([]);
   const [adminCases, setAdminCases] = useState<AdminCase[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [adminRiskGroups, setAdminRiskGroups] = useState<AdminRiskGroup[]>([]);
+  const [adminAppeals, setAdminAppeals] = useState<AccountAppeal[]>([]);
+  const [accountAppeal, setAccountAppeal] = useState<AccountAppeal | null>(null);
+  const [appealMessage, setAppealMessage] = useState("");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [irccHistory, setIrccHistory] = useState<IrccHistoryItem[]>([]);
   const [koreaHistory, setKoreaHistory] = useState<KoreaHistoryItem[]>([]);
@@ -1671,6 +1818,10 @@ export function App() {
     requestJson<{ user: User }>("/api/me")
       .then((payload) => {
         setUser(payload.user);
+        if (payload.user.account_status !== "active") {
+          void loadAccountAppeal();
+          return;
+        }
         void syncBrowserTimezone(payload.user);
         setProfileForm((current) => ({ ...current, email: payload.user.email }));
         setCaseForm((current) => current.receiveEmail ? current : createEmptyCaseForm(payload.user.email));
@@ -1690,6 +1841,8 @@ export function App() {
       setCases([]);
       setIrccCases([]);
       setKoreaCases([]);
+      setAccountAppeal(null);
+      setAppealMessage("");
       setCasesLoaded(false);
       setIrccCasesLoaded(false);
       setKoreaCasesLoaded(false);
@@ -1827,6 +1980,11 @@ export function App() {
     setKoreaCasesLoaded(true);
   }
 
+  async function loadAccountAppeal() {
+    const payload = await requestJson<{ appeal: AccountAppeal | null }>("/api/account-appeals/latest");
+    setAccountAppeal(payload.appeal);
+  }
+
   async function loadHistory(caseId: number) {
     const payload = await requestJson<{ history: HistoryItem[] }>(`/api/cases/${caseId}/history`);
     setHistory(payload.history);
@@ -1852,7 +2010,7 @@ export function App() {
   }
 
   async function loadAdminData() {
-    const [runsPayload, jobsPayload, casesPayload, usersPayload, systemEmailPayload, securityEventsPayload, emailDeliveryPayload] = await Promise.all([
+    const [runsPayload, jobsPayload, casesPayload, usersPayload, systemEmailPayload, securityEventsPayload, emailDeliveryPayload, riskGroupsPayload, appealsPayload] = await Promise.all([
       requestJson<{ runs: QueryRun[] }>("/api/admin/query-runs"),
       requestJson<{ jobs: AdminQueryJob[]; scheduledJobs: AdminScheduledQueryJob[]; finishedJobs: AdminFinishedQueryJob[] }>("/api/admin/query-jobs"),
       requestJson<{ cases: AdminCase[] }>("/api/admin/cases"),
@@ -1860,6 +2018,8 @@ export function App() {
       requestJson<{ config: SystemEmailConfig }>("/api/admin/system-email"),
       requestJson<{ events: SecurityEvent[] }>("/api/admin/security-events?limit=200"),
       requestJson<{ deliveries: EmailDeliveryLog[] }>("/api/admin/email-deliveries?limit=200"),
+      requestJson<{ groups: AdminRiskGroup[] }>("/api/admin/risk-groups"),
+      requestJson<{ appeals: AccountAppeal[] }>("/api/admin/appeals"),
     ]);
     setQueryRuns(runsPayload.runs);
     setQueryJobs(jobsPayload.jobs);
@@ -1867,6 +2027,8 @@ export function App() {
     setFinishedQueryJobs(jobsPayload.finishedJobs);
     setAdminCases(casesPayload.cases);
     setAdminUsers(usersPayload.users);
+    setAdminRiskGroups(riskGroupsPayload.groups);
+    setAdminAppeals(appealsPayload.appeals);
     setSecurityEvents(securityEventsPayload.events);
     setEmailDeliveryLogs(emailDeliveryPayload.deliveries);
     setSystemEmailConfig(systemEmailPayload.config);
@@ -1976,6 +2138,17 @@ export function App() {
         clearLegacyRememberedPassword();
       }
       setUser(payload.user);
+      if (payload.user.account_status !== "active") {
+        setAcceptedTerms(false);
+        setCases([]);
+        setIrccCases([]);
+        setKoreaCases([]);
+        setCasesLoaded(false);
+        setIrccCasesLoaded(false);
+        setKoreaCasesLoaded(false);
+        await loadAccountAppeal();
+        return;
+      }
       void syncBrowserTimezone(payload.user);
       setAcceptedTerms(false);
       setProfileForm({ email: payload.user.email, currentPassword: "", newPassword: "", confirmPassword: "" });
@@ -2011,12 +2184,32 @@ export function App() {
     }
   }
 
+  async function submitAccountAppeal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsBusy(true);
+    try {
+      const payload = await requestJson<{ appeal: AccountAppeal }>("/api/account-appeals", {
+        method: "POST",
+        body: JSON.stringify({ message: appealMessage }),
+      });
+      setAccountAppeal(payload.appeal);
+      setAppealMessage("");
+      showMessage(t("accountAppealSubmitted"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function logout() {
     await requestJson<{ ok: boolean }>("/api/auth/logout", { method: "POST", body: "{}" });
     setUser(null);
     setCases([]);
     setIrccCases([]);
     setKoreaCases([]);
+    setAccountAppeal(null);
+    setAppealMessage("");
     setCasesLoaded(false);
     setIrccCasesLoaded(false);
     setKoreaCasesLoaded(false);
@@ -2705,6 +2898,91 @@ export function App() {
     }
   }
 
+  async function suspendAdminAccount(userId: number) {
+    setIsBusy(true);
+    try {
+      await requestJson<{ ok: boolean }>(`/api/admin/users/${userId}/suspend`, {
+        method: "POST",
+        body: JSON.stringify({ reasonCode: "manual_review", adminNote: "管理员手动限制账号。" }),
+      });
+      await loadAdminData();
+      showMessage(t("accountSuspended"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function restoreAdminAccount(userId: number) {
+    setIsBusy(true);
+    try {
+      await requestJson<{ ok: boolean }>(`/api/admin/users/${userId}/restore`, {
+        method: "POST",
+        body: JSON.stringify({ removeFromEnforcedGroups: false }),
+      });
+      await loadAdminData();
+      showMessage(t("accountAccessRestored"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function flagAdminAccount(userId: number) {
+    setIsBusy(true);
+    try {
+      await requestJson<{ ok: boolean }>(`/api/admin/users/${userId}/risk-flag`, {
+        method: "POST",
+        body: JSON.stringify({ riskLevel: "review", reasonCode: "manual_review", adminNote: "管理员要求人工复核。" }),
+      });
+      await loadAdminData();
+      showMessage(t("accountRiskFlag"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function createAdminRiskGroup(payload: RiskGroupCreatePayload) {
+    setIsBusy(true);
+    try {
+      await requestJson<{ group: AdminRiskGroup }>("/api/admin/risk-groups", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      await loadAdminData();
+      showMessage(t("accountRiskGroupCreated"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function reviewAdminAppeal(appealId: number, decision: "approved" | "rejected") {
+    setIsBusy(true);
+    try {
+      await requestJson<{ appeal: AccountAppeal }>(`/api/admin/appeals/${appealId}/review`, {
+        method: "POST",
+        body: JSON.stringify({
+          decision,
+          reviewNote: decision === "approved" ? "账号访问已恢复。" : "当前无法恢复账号访问。",
+          adminNote: "管理员在控制台处理申诉。",
+          removeFromEnforcedGroups: false,
+        }),
+      });
+      await loadAdminData();
+      showMessage(decision === "approved" ? t("accountAccessRestored") : t("accountAppealRejected"));
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : t("requestFailed"));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function restoreCeacAutoQuery(caseId: number) {
     setIsBusy(true);
     showMessage("");
@@ -2889,6 +3167,46 @@ export function App() {
         </div>
         <SiteFooter t={t} />
         {isTermsDialogOpen && <TermsDialog t={t} languageMode={languageMode} onClose={() => setIsTermsDialogOpen(false)} />}
+      </main>
+    );
+  }
+
+  if (user.account_status !== "active") {
+    return (
+      <main className="restricted-shell">
+        <a className="skip-link" href="#main-content">{languageMode === "zh" ? "跳到主要内容" : "Skip to content"}</a>
+        <div className="auth-tools">
+          <LanguageButton languageMode={languageMode} setLanguageMode={setLanguageMode} />
+          <ThemeButton themeMode={themeMode} setThemeMode={setThemeMode} t={t} />
+          <button className="button tertiary icon-only" onClick={logout} title={t("logoutTitle")} aria-label={t("logoutTitle")}>
+            <LogOut size={16} />
+          </button>
+        </div>
+        <section className="restricted-panel panel" id="main-content">
+          <div className="restricted-heading">
+            <ShieldAlert size={24} aria-hidden="true" />
+            <div>
+              <p className="meta-line">{user.email}</p>
+              <h1 className="headline">{t("accountRestrictedTitle")}</h1>
+            </div>
+          </div>
+          <span className={`status-badge ${user.account_status === "suspended" ? "error" : ""}`}>
+            {user.account_status === "review" ? t("accountStatusReview") : t("accountStatusSuspended")}
+          </span>
+          <p className="form-intro">
+            {user.account_status === "review" ? t("accountRestrictedReviewBody") : t("accountRestrictedSuspendedBody")}
+          </p>
+          <RestrictedAccountPanel
+            appeal={accountAppeal}
+            appealMessage={appealMessage}
+            setAppealMessage={setAppealMessage}
+            submitAppeal={submitAccountAppeal}
+            isBusy={isBusy}
+            t={t}
+            languageMode={languageMode}
+          />
+        </section>
+        <SiteFooter t={t} />
       </main>
     );
   }
@@ -3242,6 +3560,8 @@ export function App() {
         ) : (
           <AdminPanel
             users={adminUsers}
+            riskGroups={adminRiskGroups}
+            appeals={adminAppeals}
             queryRuns={queryRuns}
             queryJobs={queryJobs}
             scheduledQueryJobs={scheduledQueryJobs}
@@ -3258,6 +3578,11 @@ export function App() {
             saveSystemEmail={saveSystemEmail}
             updateAccountTier={updateAccountTier}
             updateWorkerPriority={updateWorkerPriority}
+            suspendAccount={suspendAdminAccount}
+            restoreAccount={restoreAdminAccount}
+            flagAccount={flagAdminAccount}
+            createRiskGroup={createAdminRiskGroup}
+            reviewAppeal={reviewAdminAppeal}
             restoreCeacAutoQuery={restoreCeacAutoQuery}
             isBusy={isBusy}
           />
@@ -3319,6 +3644,63 @@ function PublicNoticePanel(props: { t: (key: TranslationKey) => string }) {
         <p>{props.t("publicNoticeBody")}</p>
         <p className="support-disclaimer">{props.t("publicNoticeDisclaimer")}</p>
       </div>
+    </section>
+  );
+}
+
+function RestrictedAccountPanel(props: {
+  appeal: AccountAppeal | null;
+  appealMessage: string;
+  setAppealMessage: React.Dispatch<React.SetStateAction<string>>;
+  submitAppeal: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  isBusy: boolean;
+  t: (key: TranslationKey) => string;
+  languageMode: LanguageMode;
+}) {
+  const appeal = props.appeal;
+  const appealStatusLabel = appeal?.status === "pending"
+    ? props.t("accountAppealPending")
+    : appeal?.status === "approved"
+      ? props.t("accountAppealApproved")
+      : appeal?.status === "rejected"
+        ? props.t("accountAppealRejected")
+        : "";
+  return (
+    <section className="restricted-appeal">
+      <div className="panel-title">
+        <h2 className="subhead">{props.t("accountAppeal")}</h2>
+        {appealStatusLabel && <span className="status-badge">{appealStatusLabel}</span>}
+      </div>
+      {appeal && (
+        <div className="restricted-appeal-status">
+          <FieldSheet
+            fields={[
+              { label: props.t("createdAt"), value: formatTime(appeal.submittedAt, props.languageMode), mono: true },
+              ...(appeal.reviewedAt ? [{ label: props.t("accountAppealReviewedAt"), value: formatTime(appeal.reviewedAt, props.languageMode), mono: true }] : []),
+              ...(appeal.reviewNote ? [{ label: props.t("accountAppealReviewNote"), value: appeal.reviewNote }] : []),
+            ]}
+          />
+        </div>
+      )}
+      {appeal?.status === "pending" ? null : (
+        <form className="stack" onSubmit={(event) => void props.submitAppeal(event)}>
+          <p className="form-intro">{props.t("accountAppealBody")}</p>
+          <label>
+            {props.t("accountAppealMessage")}
+            <textarea
+              value={props.appealMessage}
+              onChange={(event) => props.setAppealMessage(event.target.value)}
+              minLength={10}
+              maxLength={2000}
+              required
+              placeholder={props.t("accountAppealPlaceholder")}
+            />
+          </label>
+          <div>
+            <button className="button primary" disabled={props.isBusy}>{props.t("accountAppealSubmit")}</button>
+          </div>
+        </form>
+      )}
     </section>
   );
 }
@@ -4649,6 +5031,8 @@ function ProfilePanel(props: {
 
 function AdminPanel(props: {
   users: AdminUser[];
+  riskGroups: AdminRiskGroup[];
+  appeals: AccountAppeal[];
   queryRuns: QueryRun[];
   queryJobs: AdminQueryJob[];
   scheduledQueryJobs: AdminScheduledQueryJob[];
@@ -4665,6 +5049,11 @@ function AdminPanel(props: {
   saveSystemEmail: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   updateAccountTier: (userId: number, accountTier: AccountTier) => Promise<void>;
   updateWorkerPriority: (userId: number, workerPriority: number) => Promise<void>;
+  suspendAccount: (userId: number) => Promise<void>;
+  restoreAccount: (userId: number) => Promise<void>;
+  flagAccount: (userId: number) => Promise<void>;
+  createRiskGroup: (payload: RiskGroupCreatePayload) => Promise<void>;
+  reviewAppeal: (appealId: number, decision: "approved" | "rejected") => Promise<void>;
   restoreCeacAutoQuery: (caseId: number) => Promise<void>;
   isBusy: boolean;
 }) {
@@ -4674,6 +5063,17 @@ function AdminPanel(props: {
   const [collapsedLogUsers, setCollapsedLogUsers] = useState<Record<string, boolean>>({});
   const [collapsedSecurityActors, setCollapsedSecurityActors] = useState<Record<string, boolean>>({});
   const [collapsedEmailRecipients, setCollapsedEmailRecipients] = useState<Record<string, boolean>>({});
+  const [selectedRiskUserIds, setSelectedRiskUserIds] = useState<number[]>([]);
+  const [riskGroupLabel, setRiskGroupLabel] = useState("");
+  const [riskReasonCode, setRiskReasonCode] = useState("admin_review");
+  const [riskGroupNote, setRiskGroupNote] = useState("");
+  const [riskGroupEnforced, setRiskGroupEnforced] = useState(true);
+  const [riskGroupSuspendMembers, setRiskGroupSuspendMembers] = useState(false);
+  const [pendingAccountAction, setPendingAccountAction] = useState<
+    | { type: "suspend"; userId: number }
+    | { type: "createRiskGroup"; payload: RiskGroupCreatePayload }
+    | null
+  >(null);
   const [isFinishedQueueCollapsed, setIsFinishedQueueCollapsed] = useState(true);
   const [queueClockMs, setQueueClockMs] = useState(Date.now());
   useEffect(() => {
@@ -4729,6 +5129,57 @@ function AdminPanel(props: {
   };
   const toggleFinishedQueue = () => {
     setIsFinishedQueueCollapsed((current) => !current);
+  };
+  const formatAccountStatus = (value: AccountStatus) => {
+    if (value === "review") {
+      return props.t("accountStatusReview");
+    }
+    if (value === "suspended") {
+      return props.t("accountStatusSuspended");
+    }
+    return props.t("accountStatusActive");
+  };
+  const toggleRiskUser = (userId: number) => {
+    setSelectedRiskUserIds((current) => current.includes(userId)
+      ? current.filter((id) => id !== userId)
+      : [...current, userId]);
+  };
+  const completeRiskGroupCreation = async (payload: RiskGroupCreatePayload) => {
+    await props.createRiskGroup(payload);
+    setSelectedRiskUserIds([]);
+    setRiskGroupLabel("");
+    setRiskGroupNote("");
+  };
+  const submitRiskGroup = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (selectedRiskUserIds.length === 0) {
+      return;
+    }
+    const payload: RiskGroupCreatePayload = {
+      userIds: selectedRiskUserIds,
+      label: riskGroupLabel,
+      reasonCode: riskReasonCode,
+      adminNote: riskGroupNote,
+      enforcementState: riskGroupEnforced ? "enforced" : "review",
+      sharedStandardProfileLimit: 1,
+      suspendMembers: riskGroupSuspendMembers,
+    };
+    if (payload.suspendMembers) {
+      setPendingAccountAction({ type: "createRiskGroup", payload });
+      return;
+    }
+    void completeRiskGroupCreation(payload);
+  };
+  const confirmPendingAccountAction = async () => {
+    if (!pendingAccountAction) {
+      return;
+    }
+    if (pendingAccountAction.type === "suspend") {
+      await props.suspendAccount(pendingAccountAction.userId);
+    } else {
+      await completeRiskGroupCreation(pendingAccountAction.payload);
+    }
+    setPendingAccountAction(null);
   };
   const currentJobWaitSeconds = (job: AdminQueryJob) => {
     const baseValue = job.status === "running" ? job.started_at : job.created_at;
@@ -4834,12 +5285,15 @@ function AdminPanel(props: {
                       </span>
                     </span>
                   </span>
-                  <span className="admin-user-summary">
-                    <span className={`status-badge ${adminUser.account_tier === "premium" ? "success" : ""}`}>
-                      {formatAccountTier(adminUser.account_tier, props.t)}
+                    <span className="admin-user-summary">
+                      <span className={`status-badge ${adminUser.account_tier === "premium" ? "success" : ""}`}>
+                        {formatAccountTier(adminUser.account_tier, props.t)}
+                      </span>
+                      <span className={`status-badge ${adminUser.account_status === "suspended" ? "error" : adminUser.account_status === "review" ? "warning" : ""}`}>
+                        {formatAccountStatus(adminUser.account_status)}
+                      </span>
+                      <span className="status-badge">{adminUser.case_count} {props.t("casesOwned")}</span>
                     </span>
-                    <span className="status-badge">{adminUser.case_count} {props.t("casesOwned")}</span>
-                  </span>
                 </button>
                 {!isCollapsed && (
                   <>
@@ -4875,8 +5329,39 @@ function AdminPanel(props: {
                       </button>
                     </div>
                     <p className="form-intro compact">{props.t("workerPriorityHint")}</p>
+                    {adminUser.role !== "admin" && (
+                      <div className="admin-account-actions">
+                        <label className="checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedRiskUserIds.includes(adminUser.id)}
+                            onChange={() => toggleRiskUser(adminUser.id)}
+                            disabled={props.isBusy}
+                          />
+                          <span>{props.t("accountRiskSelected")}</span>
+                        </label>
+                        {adminUser.account_status === "active" ? (
+                          <>
+                            <button type="button" className="button tertiary compact-button" disabled={props.isBusy} onClick={() => props.flagAccount(adminUser.id)}>
+                              <Flag size={14} /> {props.t("accountRiskFlag")}
+                            </button>
+                            <button type="button" className="button danger compact-button" disabled={props.isBusy} onClick={() => setPendingAccountAction({ type: "suspend", userId: adminUser.id })}>
+                              <ShieldAlert size={14} /> {props.t("accountSuspend")}
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" className="button secondary compact-button" disabled={props.isBusy} onClick={() => props.restoreAccount(adminUser.id)}>
+                            <Check size={14} /> {props.t("accountRestore")}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <FieldSheet
                       fields={[
+                        { label: props.t("accountStatus"), value: formatAccountStatus(adminUser.account_status) },
+                        ...(adminUser.riskLevel ? [{ label: props.t("accountRiskFlag"), value: adminUser.riskLevel }] : []),
+                        ...(adminUser.riskGroups.length ? [{ label: props.t("accountRiskGroups"), value: adminUser.riskGroups.map((group) => group.label).join(" · ") }] : []),
+                        ...(adminUser.latestAppealStatus ? [{ label: props.t("accountAppeal"), value: adminUser.latestAppealStatus }] : []),
                         { label: props.t("lastQuery"), value: formatTime(adminUser.last_checked_at, props.languageMode), mono: true },
                         { label: props.t("createdAt"), value: formatTime(adminUser.created_at, props.languageMode), mono: true },
                         { label: props.t("updatedAt"), value: formatTime(adminUser.updated_at, props.languageMode), mono: true },
@@ -4971,6 +5456,92 @@ function AdminPanel(props: {
               </div>
             );
           })}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <div className="inline-title">
+            <UsersRound size={18} aria-hidden="true" />
+            <h2 className="headline">{props.t("accountRiskGroups")}</h2>
+          </div>
+          <span className="status-badge">{selectedRiskUserIds.length} {props.t("accountRiskSelected")}</span>
+        </div>
+        <form className="admin-risk-form" onSubmit={submitRiskGroup}>
+          <div className="two-col">
+            <label>
+              {props.t("accountRiskGroupLabel")}
+              <input value={riskGroupLabel} onChange={(event) => setRiskGroupLabel(event.target.value)} placeholder={props.t("accountRiskGroupLabel")} maxLength={120} required />
+            </label>
+            <label>
+              {props.t("accountRiskReason")}
+              <input value={riskReasonCode} onChange={(event) => setRiskReasonCode(event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))} maxLength={64} required />
+            </label>
+          </div>
+          <label>
+            {props.t("accountRiskNote")}
+            <textarea value={riskGroupNote} onChange={(event) => setRiskGroupNote(event.target.value)} maxLength={2000} />
+          </label>
+          <div className="admin-risk-options">
+            <label className="checkbox">
+              <input type="checkbox" checked={riskGroupEnforced} onChange={(event) => setRiskGroupEnforced(event.target.checked)} />
+              <span>{props.t("accountRiskEnforced")}</span>
+            </label>
+            <label className="checkbox">
+              <input type="checkbox" checked={riskGroupSuspendMembers} onChange={(event) => setRiskGroupSuspendMembers(event.target.checked)} />
+              <span>{props.t("accountRiskSuspendMembers")}</span>
+            </label>
+          </div>
+          <div>
+            <button className="button primary" disabled={props.isBusy || selectedRiskUserIds.length === 0}>
+              <UsersRound size={16} /> {props.t("accountRiskGroupCreate")}
+            </button>
+          </div>
+        </form>
+        <div className="admin-risk-group-list">
+          {props.riskGroups.map((group) => (
+            <div key={group.id} className="admin-risk-group-row">
+              <div>
+                <strong>{group.label}</strong>
+                <p className="form-intro compact">{group.reasonCode} · {group.members.map((member) => member.email).join(" · ")}</p>
+              </div>
+              <span className={`status-badge ${group.enforcementState === "enforced" ? "warning" : ""}`}>
+                {group.enforcementState === "enforced" ? props.t("accountRiskEnforced") : props.t("accountStatusReview")}
+              </span>
+            </div>
+          ))}
+          {props.riskGroups.length === 0 && <EmptyState title={props.t("noLogs")} compact />}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          <h2 className="headline">{props.t("accountAppeals")}</h2>
+        </div>
+        <div className="admin-appeal-list">
+          {props.appeals.map((appeal) => (
+            <div key={appeal.id} className="admin-appeal-row">
+              <FieldSheet
+                fields={[
+                  { label: props.t("accountAppealMessage"), value: appeal.message || "-" },
+                  { label: props.t("createdAt"), value: formatTime(appeal.submittedAt, props.languageMode), mono: true },
+                  { label: props.t("status"), value: appeal.status },
+                  ...(appeal.reviewNote ? [{ label: props.t("accountAppealReviewNote"), value: appeal.reviewNote }] : []),
+                ]}
+              />
+              {appeal.status === "pending" && (
+                <div className="admin-account-actions">
+                  <button type="button" className="button secondary compact-button" disabled={props.isBusy} onClick={() => props.reviewAppeal(appeal.id, "approved")}>
+                    <Check size={14} /> {props.t("approve")}
+                  </button>
+                  <button type="button" className="button tertiary compact-button" disabled={props.isBusy} onClick={() => props.reviewAppeal(appeal.id, "rejected")}>
+                    <X size={14} /> {props.t("reject")}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {props.appeals.length === 0 && <EmptyState title={props.t("accountAppealsEmpty")} compact />}
         </div>
       </section>
 
@@ -5302,6 +5873,17 @@ function AdminPanel(props: {
           {props.securityEvents.length === 0 && <EmptyState title={props.t("noLogs")} compact />}
         </div>
       </section>
+      {pendingAccountAction && (
+        <ConfirmDialog
+          title={props.t(pendingAccountAction.type === "suspend" ? "accountSuspendConfirmTitle" : "accountRiskGroupSuspendConfirmTitle")}
+          message={props.t(pendingAccountAction.type === "suspend" ? "accountSuspendConfirmBody" : "accountRiskGroupSuspendConfirmBody")}
+          confirmLabel={props.t(pendingAccountAction.type === "suspend" ? "accountSuspend" : "accountRiskGroupSuspendConfirmAction")}
+          cancelLabel={props.t("cancel")}
+          onConfirm={() => void confirmPendingAccountAction()}
+          onCancel={() => setPendingAccountAction(null)}
+          isBusy={props.isBusy}
+        />
+      )}
     </div>
   );
 }

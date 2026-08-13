@@ -53,6 +53,10 @@ def initializeDatabase() -> None:
                 has_application_profile_history INTEGER NOT NULL DEFAULT 0,
                 inactivity_notice_sent_at TEXT,
                 timezone TEXT NOT NULL DEFAULT '',
+                account_status TEXT NOT NULL DEFAULT 'active',
+                suspended_at TEXT,
+                suspension_reason TEXT NOT NULL DEFAULT '',
+                suspension_note_encrypted TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -419,6 +423,54 @@ def initializeDatabase() -> None:
                 FOREIGN KEY (case_id) REFERENCES ceac_cases(id) ON DELETE SET NULL
             );
 
+            CREATE TABLE IF NOT EXISTS account_risk_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT NOT NULL,
+                reason_code TEXT NOT NULL DEFAULT '',
+                admin_note_encrypted TEXT NOT NULL DEFAULT '',
+                enforcement_state TEXT NOT NULL DEFAULT 'review',
+                shared_standard_profile_limit INTEGER NOT NULL DEFAULT 1,
+                created_by_user_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS account_risk_group_members (
+                group_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                evidence_type TEXT NOT NULL DEFAULT 'admin_review',
+                evidence_reference_hash TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (group_id, user_id),
+                FOREIGN KEY (group_id) REFERENCES account_risk_groups(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS account_risk_flags (
+                user_id INTEGER PRIMARY KEY,
+                risk_level TEXT NOT NULL DEFAULT 'review',
+                reason_code TEXT NOT NULL DEFAULT '',
+                admin_note_encrypted TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS account_appeals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                message_encrypted TEXT NOT NULL,
+                review_note_encrypted TEXT NOT NULL DEFAULT '',
+                admin_note_encrypted TEXT NOT NULL DEFAULT '',
+                submitted_at TEXT NOT NULL,
+                reviewed_at TEXT,
+                reviewed_by_user_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_email_delivery_logs_user_created
             ON email_delivery_logs(user_id, created_at);
 
@@ -442,6 +494,12 @@ def initializeDatabase() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_korea_query_jobs_status
             ON korea_query_jobs(status, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_account_risk_group_members_user
+            ON account_risk_group_members(user_id, group_id);
+
+            CREATE INDEX IF NOT EXISTS idx_account_appeals_user_status
+            ON account_appeals(user_id, status, id DESC);
             """
         )
         columns = {
@@ -488,6 +546,25 @@ def initializeDatabase() -> None:
             connection.execute(
                 "ALTER TABLE users ADD COLUMN timezone TEXT NOT NULL DEFAULT ''",
             )
+        if "account_status" not in userColumns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN account_status TEXT NOT NULL DEFAULT 'active'",
+            )
+        if "suspended_at" not in userColumns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN suspended_at TEXT",
+            )
+        if "suspension_reason" not in userColumns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN suspension_reason TEXT NOT NULL DEFAULT ''",
+            )
+        if "suspension_note_encrypted" not in userColumns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN suspension_note_encrypted TEXT NOT NULL DEFAULT ''",
+            )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_account_status ON users(account_status)",
+        )
         connection.execute(
             """
             UPDATE users

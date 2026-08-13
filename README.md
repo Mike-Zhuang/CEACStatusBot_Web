@@ -34,7 +34,7 @@ CEACStatusBot is designed around one idea: visa monitoring should feel like a pr
 - Canada IRCC Portal Alpha monitoring
 - Korea Visa Portal status monitoring
 - Email notifications, test emails, and custom SMTP settings
-- Multi-user accounts, account tiers, and admin controls
+- Multi-user accounts, account tiers, linked-account review, and admin controls
 
 ## Product Highlights
 
@@ -43,13 +43,15 @@ CEACStatusBot is designed around one idea: visa monitoring should feel like a pr
 - Account registration, email verification, password reset, terms acceptance, and session management
 - Automatic monitoring, manual refresh jobs, status timelines, and query history
 - Encrypted storage for sensitive profile fields, SMTP credentials, IRCC credentials, and raw snapshots
-- Admin console for account tiers, worker priority, queue visibility, security events, and sender configuration
+- Admin console for account tiers, worker priority, queue visibility, security events, account restriction/appeals, linked-account quota enforcement, and sender configuration
 
 ## Query Models
 
 ### U.S. CEAC
 
 CEAC profiles can run on schedule or on demand. Status changes and CEAC last-updated changes are written to history and can trigger notification emails. Standard and Premium accounts use different quotas, while admins are exempt.
+
+For confirmed linked Standard accounts, an administrator can apply a shared quota to prevent multi-account limit evasion. A review-only association does not change an existing user's quota by itself.
 
 ### GTS passport appointment slots
 
@@ -125,6 +127,8 @@ Demo accounts are disabled by default. If you need local-only seeded users, set 
 - Sensitive requests validate `Origin` and `Referer`
 - Request size limits, host allowlists, rate limits, and security-event logging are enabled
 - Third-party query targets are fixed; user input does not control request hosts
+- Restricting an account revokes active sessions, pauses CEAC/GTS/IRCC/Korea automatic work, fails queued jobs, and suppresses in-flight result persistence before it can notify
+- Restricted users retain their data, receive a neutral notice at their registered email, and can submit an appeal from a limited account page; restoring access never silently restarts monitoring
 
 IRCC Portal Alpha stores user-authorized portal credentials to support scheduled monitoring. That is a higher-trust feature than plain CEAC polling. Treat it accordingly.
 

@@ -9,6 +9,21 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
+from .account_controls import (
+    createRiskGroup,
+    ensureAccountCanUseService,
+    evaluateNewRegistrationAssociation,
+    getAccountRiskSummary,
+    getLatestAccountAppeal,
+    getQuotaScope,
+    listAccountAppeals,
+    listRiskGroups,
+    restoreUserAccount,
+    reviewAccountAppeal,
+    setUserRiskFlag,
+    submitAccountAppeal,
+    suspendUserAccount,
+)
 from .case_service import (
     createCase,
     deleteCase,
@@ -54,7 +69,7 @@ from .korea_visa_service import (
     patchKoreaCase,
     sendCurrentKoreaEmail,
 )
-from .mailer import getSystemSmtpConfigPublic, saveSystemSmtpConfig, sendSystemEmail
+from .mailer import getSystemSmtpConfigPublic, saveSystemSmtpConfig, sendAccountRestrictionEmail, sendSystemEmail
 from .passport_slot_service import (
     enqueueDuePassportSlotMonitors,
     enqueuePassportSlotQuery,
@@ -65,6 +80,11 @@ from .passport_slot_service import (
     upsertPassportSlotMonitor,
 )
 from .schemas import (
+    AccountAppealRequest,
+    AccountAppealReviewRequest,
+    AccountRestoreRequest,
+    AccountRiskFlagRequest,
+    AccountSuspendRequest,
     AccountTierPatch,
     CeacCaseInput,
     CeacCasePatch,
@@ -81,6 +101,7 @@ from .schemas import (
     ProfileOrderPatch,
     ProfileUpdateRequest,
     RegisterRequest,
+    RiskGroupCreateRequest,
     SendCodeRequest,
     SystemSmtpConfigInput,
     TimezoneUpdateRequest,
@@ -111,7 +132,7 @@ from .security_guard import (
 )
 from .secrets import decryptIfNeeded, getCredentialMasterKey, hashSensitiveLookup
 
-TERMS_VERSION = "2026-05-15"
+TERMS_VERSION = "2026-08-12"
 INACTIVITY_NOTICE_DAYS = 15
 INACTIVITY_DELETE_DAYS = 30
 
@@ -201,11 +222,41 @@ async def csrfOriginGuard(request: Request, callNext):
 
 
 def currentUserDependency(request: Request) -> dict:
+    user = getCurrentUser(request)
+    ensureAccountCanUseService(user)
+    return user
+
+
+def sessionUserDependency(request: Request) -> dict:
     return getCurrentUser(request)
 
 
 def adminDependency(request: Request) -> dict:
     return requireAdmin(request)
+
+
+def notifyAccountRestriction(
+    *,
+    userId: int,
+    email: str,
+    accountStatus: str,
+    restrictedAt: str,
+) -> None:
+    """限制落库后再发通知，避免事务回滚时产生错误邮件。"""
+    if accountStatus not in {"review", "suspended"}:
+        return
+    delivered = sendAccountRestrictionEmail(
+        userId=userId,
+        recipient=email,
+        accountStatus=accountStatus,
+        restrictedAt=restrictedAt,
+    )
+    logSecurityEvent(
+        eventType="account_restriction_notice_sent" if delivered else "account_restriction_notice_failed",
+        userId=userId,
+        severity="info" if delivered else "warning",
+        detail={"accountStatus": accountStatus},
+    )
 
 
 def listCasesForQueryRuns(rows: list[dict]) -> list[dict]:
@@ -275,58 +326,49 @@ def listFinishedQueryJobsForAdmin(rows: list[dict]) -> list[dict]:
 def enforceDailyManualQueryLimit(user: dict) -> None:
     if user.get("role") == "admin":
         return
-    queryLimit = settings.premiumDailyManualQueryLimit if user.get("account_tier") == "premium" else settings.standardDailyManualQueryLimit
     now = datetime.now(UTC)
     todayStart = now.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrowStart = todayStart + timedelta(days=1)
     with getConnection() as connection:
+        scope = getQuotaScope(connection, int(user["id"]))
+        scopedIds = tuple(int(value) for value in scope["userIds"])
+        placeholders = ", ".join("?" for _ in scopedIds)
+        queryLimit = settings.premiumDailyManualQueryLimit if scope["accountTier"] == "premium" else settings.standardDailyManualQueryLimit
         row = connection.execute(
-            """
+            f"""
             SELECT COUNT(*) AS query_count
             FROM query_jobs j
             JOIN ceac_cases c ON c.id = j.case_id
-            WHERE c.user_id = ?
+            WHERE c.user_id IN ({placeholders})
               AND j.trigger_type IN ('manual', 'passport_slot_manual')
               AND j.created_at >= ?
               AND j.created_at < ?
             """,
-            (
-                int(user["id"]),
-                todayStart.isoformat(),
-                tomorrowStart.isoformat(),
-            ),
+            (*scopedIds, todayStart.isoformat(), tomorrowStart.isoformat()),
         ).fetchone()
         irccRow = connection.execute(
-            """
+            f"""
             SELECT COUNT(*) AS query_count
             FROM ircc_query_jobs j
             JOIN ircc_cases c ON c.id = j.case_id
-            WHERE c.user_id = ?
+            WHERE c.user_id IN ({placeholders})
               AND j.trigger_type = 'ircc_manual'
               AND j.created_at >= ?
               AND j.created_at < ?
             """,
-            (
-                int(user["id"]),
-                todayStart.isoformat(),
-                tomorrowStart.isoformat(),
-            ),
+            (*scopedIds, todayStart.isoformat(), tomorrowStart.isoformat()),
         ).fetchone()
         koreaRow = connection.execute(
-            """
+            f"""
             SELECT COUNT(*) AS query_count
             FROM korea_query_jobs j
             JOIN korea_cases c ON c.id = j.case_id
-            WHERE c.user_id = ?
+            WHERE c.user_id IN ({placeholders})
               AND j.trigger_type = 'korea_manual'
               AND j.created_at >= ?
               AND j.created_at < ?
             """,
-            (
-                int(user["id"]),
-                todayStart.isoformat(),
-                tomorrowStart.isoformat(),
-            ),
+            (*scopedIds, todayStart.isoformat(), tomorrowStart.isoformat()),
         ).fetchone()
     queryCount = (
         int(row["query_count"] if row else 0)
@@ -677,11 +719,27 @@ def register(payload: RegisterRequest, request: Request, response: Response) -> 
             ),
         )
         connection.execute("UPDATE email_verification_codes SET used_at = ? WHERE id = ?", (nowIso, codeRow["id"]))
+        evaluateNewRegistrationAssociation(
+            connection,
+            userId=int(cursor.lastrowid),
+            deviceHash=hashes["device_hash"],
+            ipHash=hashes["ip_hash"],
+        )
         user = connection.execute(
-            "SELECT id, email, role, account_tier, is_email_verified, timezone, created_at FROM users WHERE id = ?",
+            """
+            SELECT id, email, role, account_tier, is_email_verified, timezone, account_status, created_at
+            FROM users WHERE id = ?
+            """,
             (cursor.lastrowid,),
         ).fetchone()
     setSessionCookie(response, user, request)
+    if str(user.get("account_status") or "active") != "active":
+        notifyAccountRestriction(
+            userId=int(user["id"]),
+            email=str(user["email"]),
+            accountStatus=str(user["account_status"]),
+            restrictedAt=nowIso,
+        )
     logSecurityEvent(eventType="register_completed", request=request, userId=int(user["id"]), email=email)
     return {"user": user}
 
@@ -710,6 +768,8 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
         "is_email_verified": user["is_email_verified"],
         "timezone": user["timezone"],
         "created_at": user["created_at"],
+        "account_status": user.get("account_status") or "active",
+        "account_restricted": (user.get("account_status") or "active") != "active",
     }
     setSessionCookie(response, publicUser, request)
     logSecurityEvent(eventType="login_success", request=request, userId=int(user["id"]), email=email)
@@ -729,8 +789,31 @@ def logout(request: Request, response: Response) -> dict:
 
 
 @app.get("/api/me")
-def me(user: dict = Depends(currentUserDependency)) -> dict:
+def me(user: dict = Depends(sessionUserDependency)) -> dict:
     return {"user": user}
+
+
+@app.get("/api/account-appeals/latest")
+def latestAccountAppeal(user: dict = Depends(sessionUserDependency)) -> dict:
+    with getConnection() as connection:
+        appeal = getLatestAccountAppeal(connection, int(user["id"]), includeMessage=False)
+    return {"appeal": appeal}
+
+
+@app.post("/api/account-appeals")
+def createAccountAppeal(payload: AccountAppealRequest, request: Request, user: dict = Depends(sessionUserDependency)) -> dict:
+    with getConnection() as connection:
+        try:
+            appeal = submitAccountAppeal(connection, userId=int(user["id"]), message=payload.message)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    logSecurityEvent(
+        eventType="account_appeal_submitted",
+        request=request,
+        userId=int(user["id"]),
+        severity="info",
+    )
+    return {"appeal": appeal}
 
 
 @app.patch("/api/me")
@@ -759,7 +842,10 @@ def updateMe(payload: ProfileUpdateRequest, request: Request, response: Response
             (nextEmail, nextPasswordHash, nowIso, user["id"]),
         )
         publicUser = connection.execute(
-            "SELECT id, email, role, account_tier, is_email_verified, timezone, created_at FROM users WHERE id = ?",
+            """
+            SELECT id, email, role, account_tier, is_email_verified, timezone, account_status, created_at
+            FROM users WHERE id = ?
+            """,
             (user["id"],),
         ).fetchone()
     clearSessionCookie(response, request)
@@ -783,7 +869,10 @@ def updateMyTimezone(payload: TimezoneUpdateRequest, user: dict = Depends(curren
             (payload.timezone, nowIso, user["id"]),
         )
         publicUser = connection.execute(
-            "SELECT id, email, role, account_tier, is_email_verified, timezone, created_at FROM users WHERE id = ?",
+            """
+            SELECT id, email, role, account_tier, is_email_verified, timezone, account_status, created_at
+            FROM users WHERE id = ?
+            """,
             (user["id"],),
         ).fetchone()
     return {"user": publicUser}
@@ -1126,6 +1215,9 @@ def adminUsers(_: dict = Depends(adminDependency)) -> dict:
                 u.account_tier,
                 u.worker_priority,
                 u.is_email_verified,
+                u.account_status,
+                u.suspended_at,
+                u.suspension_reason,
                 u.created_at,
                 u.updated_at,
                 (
@@ -1162,7 +1254,192 @@ def adminUsers(_: dict = Depends(adminDependency)) -> dict:
             ORDER BY u.id ASC
             """,
         ).fetchall()
-    return {"users": users}
+        usersWithRisk = []
+        for row in users:
+            item = dict(row)
+            item.update(getAccountRiskSummary(connection, int(row["id"])))
+            usersWithRisk.append(item)
+    return {"users": usersWithRisk}
+
+
+@app.get("/api/admin/risk-groups")
+def adminRiskGroups(_: dict = Depends(adminDependency)) -> dict:
+    with getConnection() as connection:
+        return {"groups": listRiskGroups(connection)}
+
+
+@app.post("/api/admin/risk-groups")
+def adminCreateRiskGroup(payload: RiskGroupCreateRequest, request: Request, admin: dict = Depends(adminDependency)) -> dict:
+    newlyRestrictedUsers: list[dict] = []
+    with getConnection() as connection:
+        try:
+            if payload.suspendMembers:
+                placeholders = ", ".join("?" for _ in payload.userIds)
+                previousUsers = connection.execute(
+                    f"""
+                    SELECT id, email, account_status
+                    FROM users
+                    WHERE id IN ({placeholders}) AND role != 'admin'
+                    """,
+                    tuple(payload.userIds),
+                ).fetchall()
+                newlyRestrictedUsers = [
+                    dict(row)
+                    for row in previousUsers
+                    if str(row.get("account_status") or "active") != "suspended"
+                ]
+            group = createRiskGroup(
+                connection,
+                userIds=payload.userIds,
+                label=payload.label,
+                reasonCode=payload.reasonCode,
+                adminNote=payload.adminNote,
+                createdByUserId=int(admin["id"]),
+                enforcementState=payload.enforcementState,
+                sharedStandardProfileLimit=payload.sharedStandardProfileLimit,
+                suspendMembers=payload.suspendMembers,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    restrictedAt = utcNowIso()
+    for target in newlyRestrictedUsers:
+        notifyAccountRestriction(
+            userId=int(target["id"]),
+            email=str(target["email"]),
+            accountStatus="suspended",
+            restrictedAt=restrictedAt,
+        )
+    logSecurityEvent(
+        eventType="admin_risk_group_created",
+        request=request,
+        userId=int(admin["id"]),
+        severity="warning" if payload.suspendMembers else "info",
+        detail={"memberCount": len(payload.userIds), "enforcementState": payload.enforcementState, "suspended": payload.suspendMembers},
+    )
+    return {"group": group}
+
+
+@app.post("/api/admin/users/{userId}/suspend")
+def adminSuspendUser(userId: int, payload: AccountSuspendRequest, request: Request, admin: dict = Depends(adminDependency)) -> dict:
+    previousUser: dict | None = None
+    with getConnection() as connection:
+        try:
+            row = connection.execute(
+                "SELECT id, email, account_status FROM users WHERE id = ?",
+                (userId,),
+            ).fetchone()
+            previousUser = dict(row) if row else None
+            changed = suspendUserAccount(
+                connection,
+                userId=userId,
+                reasonCode=payload.reasonCode,
+                adminNote=payload.adminNote,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not changed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    if previousUser and str(previousUser.get("account_status") or "active") != "suspended":
+        notifyAccountRestriction(
+            userId=int(previousUser["id"]),
+            email=str(previousUser["email"]),
+            accountStatus="suspended",
+            restrictedAt=utcNowIso(),
+        )
+    logSecurityEvent(
+        eventType="admin_account_suspended",
+        request=request,
+        userId=int(admin["id"]),
+        severity="warning",
+        detail={"targetUserId": userId, "reasonCode": payload.reasonCode},
+    )
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{userId}/restore")
+def adminRestoreUser(userId: int, payload: AccountRestoreRequest, request: Request, admin: dict = Depends(adminDependency)) -> dict:
+    with getConnection() as connection:
+        try:
+            changed = restoreUserAccount(
+                connection,
+                userId=userId,
+                removeFromEnforcedGroups=payload.removeFromEnforcedGroups,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not changed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    logSecurityEvent(
+        eventType="admin_account_restored",
+        request=request,
+        userId=int(admin["id"]),
+        severity="info",
+        detail={"targetUserId": userId, "removedFromEnforcedGroups": payload.removeFromEnforcedGroups},
+    )
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{userId}/risk-flag")
+def adminRiskFlagUser(userId: int, payload: AccountRiskFlagRequest, request: Request, admin: dict = Depends(adminDependency)) -> dict:
+    with getConnection() as connection:
+        try:
+            changed = setUserRiskFlag(
+                connection,
+                userId=userId,
+                riskLevel=payload.riskLevel,
+                reasonCode=payload.reasonCode,
+                adminNote=payload.adminNote,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not changed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    logSecurityEvent(
+        eventType="admin_account_risk_flagged",
+        request=request,
+        userId=int(admin["id"]),
+        severity="warning",
+        detail={"targetUserId": userId, "riskLevel": payload.riskLevel, "reasonCode": payload.reasonCode},
+    )
+    return {"ok": True}
+
+
+@app.get("/api/admin/appeals")
+def adminAccountAppeals(_: dict = Depends(adminDependency)) -> dict:
+    with getConnection() as connection:
+        return {"appeals": listAccountAppeals(connection)}
+
+
+@app.post("/api/admin/appeals/{appealId}/review")
+def adminReviewAccountAppeal(
+    appealId: int,
+    payload: AccountAppealReviewRequest,
+    request: Request,
+    admin: dict = Depends(adminDependency),
+) -> dict:
+    with getConnection() as connection:
+        try:
+            appeal = reviewAccountAppeal(
+                connection,
+                appealId=appealId,
+                reviewerUserId=int(admin["id"]),
+                decision=payload.decision,
+                reviewNote=payload.reviewNote,
+                adminNote=payload.adminNote,
+                removeFromEnforcedGroups=payload.removeFromEnforcedGroups,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not appeal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="申诉不存在")
+    logSecurityEvent(
+        eventType="admin_account_appeal_reviewed",
+        request=request,
+        userId=int(admin["id"]),
+        severity="info",
+        detail={"appealId": appealId, "decision": payload.decision},
+    )
+    return {"appeal": appeal}
 
 
 @app.patch("/api/admin/users/{userId}/worker-priority")

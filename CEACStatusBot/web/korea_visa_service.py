@@ -9,13 +9,8 @@ from typing import Any
 import requests
 from bs4 import BeautifulSoup
 
-from .case_service import (
-    PREMIUM_CASE_LIMIT,
-    STANDARD_CASE_LIMIT,
-    computeNextCheckAt,
-    nextProfileSortOrder,
-    upsertSmtpConfig,
-)
+from .account_controls import enforceProfileActivationLimit, enforceProfileCreationLimit, isUserAccountActive
+from .case_service import computeNextCheckAt, nextProfileSortOrder, upsertSmtpConfig
 from .database import getConnection, utcNowIso
 from .mailer import sendCaseEmail
 from .schemas import KoreaCaseInput, KoreaCasePatch
@@ -256,26 +251,15 @@ def getKoreaCase(caseId: int, userId: int | None = None) -> dict[str, Any] | Non
     return normalizeKoreaCaseRow(row) if row else None
 
 
-def countAllUserProfiles(connection: Any, userId: int) -> int:
-    total = 0
-    for tableName in ("ceac_cases", "ircc_cases", "korea_cases"):
-        row = connection.execute(f"SELECT COUNT(*) AS case_count FROM {tableName} WHERE user_id = ?", (userId,)).fetchone()
-        total += int(row["case_count"] if row else 0)
-    return total
-
-
 def createKoreaCase(userId: int, payload: KoreaCaseInput) -> dict[str, Any]:
     now = utcNowIso()
     if payload.emailNotificationsEnabled and not payload.receiveEmail:
         raise ValueError("开启邮件推送时必须填写接收提醒邮箱。")
     with getConnection() as connection:
-        user = connection.execute("SELECT role, account_tier FROM users WHERE id = ?", (userId,)).fetchone()
+        user = connection.execute("SELECT id FROM users WHERE id = ?", (userId,)).fetchone()
         if not user:
             raise ValueError("用户不存在")
-        if user.get("role") != "admin":
-            profileLimit = PREMIUM_CASE_LIMIT if user.get("account_tier") == "premium" else STANDARD_CASE_LIMIT
-            if countAllUserProfiles(connection, userId) >= profileLimit:
-                raise ValueError(f"当前账号最多可添加 {profileLimit} 个档案，请联系管理员升级账号。")
+        enforceProfileCreationLimit(connection, userId)
         upsertSmtpConfig(connection, userId, payload.smtpConfig)
         cursor = connection.execute(
             """
@@ -331,6 +315,8 @@ def patchKoreaCase(caseId: int, userId: int, payload: KoreaCasePatch) -> dict[st
     encryptedKeys = {"passportNumber", "englishName", "birthDate", "receiveEmail"}
     now = utcNowIso()
     with getConnection() as connection:
+        if data.get("isEnabled") is True and not current.get("isEnabled"):
+            enforceProfileActivationLimit(connection, userId, tableName="korea_cases", profileId=caseId)
         if payload.smtpConfig:
             upsertSmtpConfig(connection, userId, payload.smtpConfig)
         assignments: list[str] = []
@@ -411,7 +397,15 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
     errorMessage = ""
     result: dict[str, Any] = {"success": False}
     with getConnection() as connection:
-        row = connection.execute("SELECT * FROM korea_cases WHERE id = ?", (caseId,)).fetchone()
+        row = connection.execute(
+            """
+            SELECT c.*, u.account_status, u.role
+            FROM korea_cases c
+            JOIN users u ON u.id = c.user_id
+            WHERE c.id = ?
+            """,
+            (caseId,),
+        ).fetchone()
         smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (row["user_id"],)).fetchone() if row else None
         previous = connection.execute(
             """
@@ -425,6 +419,8 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
         ).fetchone()
     if not row:
         raise RuntimeError("韩国签证档案不存在")
+    if row["role"] != "admin" and str(row.get("account_status") or "active") != "active":
+        return {"success": False, "changed": False, "error": "账号当前不可用，查询已停止。"}
     case = decryptKoreaCaseRow(row)
     try:
         result = queryKoreaVisaStatus(case["passport_number"], case["english_name"], case["birth_date"])
@@ -450,6 +446,9 @@ def runKoreaCaseQuery(caseId: int, triggerType: str = "korea_automatic") -> dict
     finishedIso = finished.replace(microsecond=0).isoformat()
     durationMs = int((finished - started).total_seconds() * 1000)
     with getConnection() as connection:
+        # 防止管理员在韩国签证网站请求尚未结束时暂停账号后，旧任务重新写回启用状态。
+        if not isUserAccountActive(int(row["user_id"]), connection):
+            return {"success": False, "changed": False, "notified": False, "error": "账号当前不可用，查询结果已丢弃。", "result": {}}
         if success:
             isTerminalStatus = isKoreaTerminalStatus(str(result.get("status", "")))
             if changed:
@@ -607,10 +606,19 @@ def enqueueKoreaCaseQuery(caseId: int, triggerType: str, userId: int | None = No
     params: tuple[Any, ...] = (caseId,)
     userFilter = ""
     if userId is not None:
-        userFilter = "AND user_id = ?"
+        userFilter = "AND c.user_id = ?"
         params = (caseId, userId)
     with getConnection() as connection:
-        case = connection.execute(f"SELECT id FROM korea_cases WHERE id = ? {userFilter}", params).fetchone()
+        case = connection.execute(
+            f"""
+            SELECT c.id
+            FROM korea_cases c
+            JOIN users u ON u.id = c.user_id
+            WHERE c.id = ? {userFilter}
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
+            """,
+            params,
+        ).fetchone()
         if not case:
             return None
         existing = connection.execute(
@@ -642,9 +650,11 @@ def enqueueDueKoreaCases(limit: int = 20) -> list[dict[str, Any]]:
     with getConnection() as connection:
         rows = connection.execute(
             """
-            SELECT id
+            SELECT c.id
             FROM korea_cases c
+            JOIN users u ON u.id = c.user_id
             WHERE c.is_enabled = 1
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
               AND c.next_check_at IS NOT NULL
               AND c.next_check_at <= ?
               AND NOT EXISTS (
@@ -675,6 +685,7 @@ def claimNextKoreaQueryJob(workerId: str | None = None) -> dict[str, Any] | None
             JOIN korea_cases c ON c.id = j.case_id
             JOIN users u ON u.id = c.user_id
             WHERE j.status = 'queued'
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
             ORDER BY u.worker_priority ASC, j.id ASC
             LIMIT 1
             """,

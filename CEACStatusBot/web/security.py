@@ -9,6 +9,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError, VerificationError
 from fastapi import HTTPException, Request, Response, status
 
+from .account_controls import publicAccountFields
 from .config import getSettings
 from .database import getConnection, utcNowIso
 from .security_guard import enforceAuthenticatedApiLimit, logSecurityEvent, requestActorHashes
@@ -129,7 +130,8 @@ def getCurrentUser(request: Request) -> dict[str, Any]:
     with getConnection() as connection:
         session = connection.execute(
             """
-            SELECT s.*, u.id, u.email, u.role, u.account_tier, u.is_email_verified, u.timezone, u.created_at
+            SELECT s.*, u.id, u.email, u.role, u.account_tier, u.is_email_verified, u.timezone,
+                   u.account_status, u.created_at
             FROM user_sessions s
             JOIN users u ON u.id = s.user_id
             WHERE s.token_hash = ?
@@ -164,6 +166,7 @@ def getCurrentUser(request: Request) -> dict[str, Any]:
         "timezone": session["timezone"],
         "created_at": session["created_at"],
     }
+    user.update(publicAccountFields(session))
     enforceAuthenticatedApiLimit(request, user)
     return user
 

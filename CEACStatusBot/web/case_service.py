@@ -6,6 +6,11 @@ from typing import Any
 
 from CEACStatusBot.request import query_status
 
+from .account_controls import (
+    enforceProfileActivationLimit,
+    enforceProfileCreationLimit,
+    isUserAccountActive,
+)
 from .config import getSettings
 from .database import getConnection, utcNowIso
 from .mailer import sendCaseNotification, sendCeacConsecutiveFailureNotification, sendIssuedAutoStopNotification
@@ -276,23 +281,12 @@ def upsertSmtpConfig(connection: Any, userId: int, smtpConfig: Any) -> None:
 def createCase(userId: int, payload: CeacCaseInput) -> dict[str, Any]:
     now = utcNowIso()
     with getConnection() as connection:
-        user = connection.execute("SELECT role, account_tier FROM users WHERE id = ?", (userId,)).fetchone()
+        user = connection.execute("SELECT id FROM users WHERE id = ?", (userId,)).fetchone()
         if not user:
             raise ValueError("用户不存在")
         if payload.emailNotificationsEnabled and not payload.receiveEmail:
             raise ValueError("开启邮件推送时必须填写接收提醒邮箱。")
-        if user.get("role") != "admin":
-            caseCountRow = connection.execute("SELECT COUNT(*) AS case_count FROM ceac_cases WHERE user_id = ?", (userId,)).fetchone()
-            irccCaseCountRow = connection.execute("SELECT COUNT(*) AS case_count FROM ircc_cases WHERE user_id = ?", (userId,)).fetchone()
-            koreaCaseCountRow = connection.execute("SELECT COUNT(*) AS case_count FROM korea_cases WHERE user_id = ?", (userId,)).fetchone()
-            caseCount = (
-                int(caseCountRow["case_count"] if caseCountRow else 0)
-                + int(irccCaseCountRow["case_count"] if irccCaseCountRow else 0)
-                + int(koreaCaseCountRow["case_count"] if koreaCaseCountRow else 0)
-            )
-            caseLimit = PREMIUM_CASE_LIMIT if user.get("account_tier") == "premium" else STANDARD_CASE_LIMIT
-            if caseCount >= caseLimit:
-                raise ValueError(f"当前账号最多可添加 {caseLimit} 个档案，请联系管理员升级账号。")
+        enforceProfileCreationLimit(connection, userId)
         upsertSmtpConfig(connection, userId, payload.smtpConfig)
         cursor = connection.execute(
             """
@@ -353,6 +347,8 @@ def patchCase(caseId: int, userId: int, payload: CeacCasePatch, *, allowLockedEn
     encryptedKeys = {"applicationNum", "passportNumber", "surname", "receiveEmail"}
     now = utcNowIso()
     with getConnection() as connection:
+        if data.get("isEnabled") is True and not current.get("isEnabled"):
+            enforceProfileActivationLimit(connection, userId, tableName="ceac_cases", profileId=caseId)
         if payload.smtpConfig:
             upsertSmtpConfig(connection, userId, payload.smtpConfig)
         assignments: list[str] = []
@@ -389,15 +385,18 @@ def restoreCaseAutomaticQuery(caseId: int) -> dict[str, Any] | None:
     with getConnection() as connection:
         row = connection.execute(
             """
-            SELECT c.user_id, s.status AS last_status
+            SELECT c.user_id, s.status AS last_status, u.account_status, u.role
             FROM ceac_cases c
             LEFT JOIN status_catalog s ON s.id = c.last_status_id
+            JOIN users u ON u.id = c.user_id
             WHERE c.id = ?
             """,
             (caseId,),
         ).fetchone()
         if not row:
             return None
+        if row["role"] != "admin" and str(row.get("account_status") or "active") != "active":
+            return getCase(caseId, int(row["user_id"]))
         connection.execute(
             """
             UPDATE ceac_cases
@@ -472,10 +471,20 @@ def runCaseQuery(caseId: int, triggerType: str = "automatic") -> dict[str, Any]:
     success = False
     result: dict[str, Any] = {"success": False}
     with getConnection() as connection:
-        case = connection.execute("SELECT * FROM ceac_cases WHERE id = ?", (caseId,)).fetchone()
+        case = connection.execute(
+            """
+            SELECT c.*, u.account_status, u.role
+            FROM ceac_cases c
+            JOIN users u ON u.id = c.user_id
+            WHERE c.id = ?
+            """,
+            (caseId,),
+        ).fetchone()
         smtpConfig = connection.execute("SELECT * FROM smtp_configs WHERE user_id = ?", (case["user_id"],)).fetchone() if case else None
     if not case:
         raise RuntimeError("签证档案不存在")
+    if case["role"] != "admin" and str(case.get("account_status") or "active") != "active":
+        return {"success": False, "changed": False, "error": "账号当前不可用，查询已停止。"}
     case = decryptCaseRow(case)
 
     try:
@@ -491,6 +500,9 @@ def runCaseQuery(caseId: int, triggerType: str = "automatic") -> dict[str, Any]:
     finishedIso = finished.replace(microsecond=0).isoformat()
 
     with getConnection() as connection:
+        # 外部 CEAC 请求可能跨越管理员限制操作；落库前必须再次确认，不能让在途任务恢复监控。
+        if not isUserAccountActive(int(case["user_id"]), connection):
+            return {"success": False, "changed": False, "error": "账号当前不可用，查询结果已丢弃。"}
         hasChanged = False
         if success:
             statusId = getOrCreateStatus(connection, str(result["status"]), str(result.get("description", "")))
@@ -827,10 +839,19 @@ def enqueueCaseQuery(caseId: int, triggerType: str, userId: int | None = None) -
     params: tuple[Any, ...] = (caseId,)
     userFilter = ""
     if userId is not None:
-        userFilter = "AND user_id = ?"
+        userFilter = "AND c.user_id = ?"
         params = (caseId, userId)
     with getConnection() as connection:
-        case = connection.execute(f"SELECT id FROM ceac_cases WHERE id = ? {userFilter}", params).fetchone()
+        case = connection.execute(
+            f"""
+            SELECT c.id
+            FROM ceac_cases c
+            JOIN users u ON u.id = c.user_id
+            WHERE c.id = ? {userFilter}
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
+            """,
+            params,
+        ).fetchone()
         if not case:
             return None
         existing = connection.execute(
@@ -866,8 +887,10 @@ def enqueueDueCases(limit: int = 20) -> list[dict[str, Any]]:
             """
             SELECT c.*, s.status AS last_status
             FROM ceac_cases c
+            JOIN users u ON u.id = c.user_id
             LEFT JOIN status_catalog s ON s.id = c.last_status_id
             WHERE c.is_enabled = 1
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
               AND c.next_check_at IS NOT NULL
               AND c.next_check_at <= ?
               AND NOT EXISTS (
@@ -1022,6 +1045,7 @@ def claimNextQueryJob(workerId: str | None = None) -> dict[str, Any] | None:
             JOIN ceac_cases c ON c.id = j.case_id
             JOIN users u ON u.id = c.user_id
             WHERE j.status = 'queued'
+              AND (u.role = 'admin' OR COALESCE(u.account_status, 'active') = 'active')
             ORDER BY u.worker_priority ASC, j.id ASC
             LIMIT 1
             """,

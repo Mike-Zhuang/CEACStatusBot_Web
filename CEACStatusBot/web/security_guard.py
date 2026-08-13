@@ -22,14 +22,23 @@ def hashSecurityValue(value: str) -> str:
 def requestIp(request: Request) -> str:
     clientHost = request.client.host if request.client else ""
     if clientHost in getSettings().trustedProxyIps:
-        forwardedFor = request.headers.get("x-forwarded-for", "")
-        firstForwarded = forwardedFor.split(",", 1)[0].strip()
-        if firstForwarded:
+        # Nginx 覆盖 X-Real-IP 为实际对端地址；不能信任客户端可自行附加的 XFF 首段。
+        realIp = request.headers.get("x-real-ip", "").strip()
+        if realIp:
             try:
-                ipaddress.ip_address(firstForwarded)
-                return firstForwarded
+                ipaddress.ip_address(realIp)
+                return realIp
             except ValueError:
-                return clientHost
+                pass
+        forwardedFor = request.headers.get("x-forwarded-for", "")
+        forwardedCandidates = [item.strip() for item in forwardedFor.split(",") if item.strip()]
+        # 未配置 X-Real-IP 的受信代理回退到最后一个有效 XFF；Nginx 会将真实对端追加在末尾。
+        for forwardedIp in reversed(forwardedCandidates):
+            try:
+                ipaddress.ip_address(forwardedIp)
+                return forwardedIp
+            except ValueError:
+                continue
     return clientHost
 
 
