@@ -69,7 +69,13 @@ from .korea_visa_service import (
     patchKoreaCase,
     sendCurrentKoreaEmail,
 )
-from .mailer import getSystemSmtpConfigPublic, saveSystemSmtpConfig, sendAccountRestrictionEmail, sendSystemEmail
+from .mailer import (
+    getSystemSmtpConfigPublic,
+    saveSystemSmtpConfig,
+    sendAccountRestrictionEmail,
+    sendAdministratorAccountAlert,
+    sendSystemEmail,
+)
 from .passport_slot_service import (
     enqueueDuePassportSlotMonitors,
     enqueuePassportSlotQuery,
@@ -241,6 +247,8 @@ def notifyAccountRestriction(
     email: str,
     accountStatus: str,
     restrictedAt: str,
+    automaticRule: bool = False,
+    reasonCode: str = "",
 ) -> None:
     """限制落库后再发通知，避免事务回滚时产生错误邮件。"""
     if accountStatus not in {"review", "suspended"}:
@@ -256,6 +264,54 @@ def notifyAccountRestriction(
         userId=userId,
         severity="info" if delivered else "warning",
         detail={"accountStatus": accountStatus},
+    )
+    if not automaticRule:
+        return
+    try:
+        alert = sendAdministratorAccountAlert(
+            alertType="automatic_restriction",
+            targetUserId=userId,
+            targetEmail=email,
+            accountStatus=accountStatus,
+            occurredAt=restrictedAt,
+            reasonCode=reasonCode,
+        )
+    except Exception as exc:
+        print(f"[mail] Administrator restriction alert failed for user {userId}: {type(exc).__name__}")
+        alert = {"attempted": 0, "delivered": 0, "failed": 1}
+    logSecurityEvent(
+        eventType="administrator_account_restriction_alert_sent" if alert["delivered"] else "administrator_account_restriction_alert_failed",
+        userId=userId,
+        severity="info" if alert["delivered"] else "warning",
+        detail={"attempted": alert["attempted"], "delivered": alert["delivered"], "reasonCode": reasonCode},
+    )
+
+
+def notifyAdministratorsOfAccountAppeal(
+    *,
+    userId: int,
+    email: str,
+    accountStatus: str,
+    appealId: int,
+    submittedAt: str,
+) -> None:
+    try:
+        alert = sendAdministratorAccountAlert(
+            alertType="appeal_submitted",
+            targetUserId=userId,
+            targetEmail=email,
+            accountStatus=accountStatus,
+            occurredAt=submittedAt,
+            appealId=appealId,
+        )
+    except Exception as exc:
+        print(f"[mail] Administrator appeal alert failed for user {userId}: {type(exc).__name__}")
+        alert = {"attempted": 0, "delivered": 0, "failed": 1}
+    logSecurityEvent(
+        eventType="administrator_account_appeal_alert_sent" if alert["delivered"] else "administrator_account_appeal_alert_failed",
+        userId=userId,
+        severity="info" if alert["delivered"] else "warning",
+        detail={"appealId": appealId, "attempted": alert["attempted"], "delivered": alert["delivered"]},
     )
 
 
@@ -732,6 +788,11 @@ def register(payload: RegisterRequest, request: Request, response: Response) -> 
             """,
             (cursor.lastrowid,),
         ).fetchone()
+        riskRow = connection.execute(
+            "SELECT reason_code FROM account_risk_flags WHERE user_id = ?",
+            (cursor.lastrowid,),
+        ).fetchone()
+        riskReasonCode = str(riskRow["reason_code"] or "") if riskRow else ""
     setSessionCookie(response, user, request)
     if str(user.get("account_status") or "active") != "active":
         notifyAccountRestriction(
@@ -739,6 +800,8 @@ def register(payload: RegisterRequest, request: Request, response: Response) -> 
             email=str(user["email"]),
             accountStatus=str(user["account_status"]),
             restrictedAt=nowIso,
+            automaticRule=True,
+            reasonCode=riskReasonCode,
         )
     logSecurityEvent(eventType="register_completed", request=request, userId=int(user["id"]), email=email)
     return {"user": user}
@@ -807,6 +870,13 @@ def createAccountAppeal(payload: AccountAppealRequest, request: Request, user: d
             appeal = submitAccountAppeal(connection, userId=int(user["id"]), message=payload.message)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    notifyAdministratorsOfAccountAppeal(
+        userId=int(user["id"]),
+        email=str(user["email"]),
+        accountStatus=str(user.get("account_status") or "active"),
+        appealId=int(appeal["id"]),
+        submittedAt=str(appeal["submittedAt"]),
+    )
     logSecurityEvent(
         eventType="account_appeal_submitted",
         request=request,

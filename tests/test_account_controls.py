@@ -27,6 +27,7 @@ from CEACStatusBot.web.mailer import (
     recordEmailDelivery,
     sendAccountRestrictionEmail,
     sendAccountReviewResolutionEmail,
+    sendAdministratorAccountAlert,
 )
 from CEACStatusBot.web.main import app, enforceDailyManualQueryLimit
 from CEACStatusBot.web.security import SESSION_COOKIE_NAME, getCurrentUser, setSessionCookie
@@ -561,6 +562,109 @@ def test_account_review_resolution_email_is_logged_without_consuming_normal_quot
             subject=f"审核说明 {index}",
         )
     enforceDailyEmailLimit(int(user["id"]))
+
+
+def test_administrator_account_alert_sends_only_to_verified_administrators(createUser, monkeypatch) -> None:
+    verifiedAdmin = createUser(email="verified-admin@example.com", role="admin")
+    unverifiedAdmin = createUser(email="unverified-admin@example.com", role="admin")
+    target = createUser(email="target@example.com")
+    with getConnection() as connection:
+        connection.execute("UPDATE users SET is_email_verified = 0 WHERE id = ?", (unverifiedAdmin["id"],))
+
+    sent: list[tuple[str, str, str]] = []
+
+    def fakeSend(toEmail: str, subject: str, body: str, **_: object) -> bool:
+        sent.append((toEmail, subject, body))
+        return True
+
+    monkeypatch.setattr("CEACStatusBot.web.mailer.sendSystemEmail", fakeSend)
+    result = sendAdministratorAccountAlert(
+        alertType="automatic_restriction",
+        targetUserId=int(target["id"]),
+        targetEmail=str(target["email"]),
+        accountStatus="review",
+        occurredAt=nowIso(),
+        reasonCode="repeated_device_registration_high_velocity",
+    )
+    assert result == {"attempted": 1, "delivered": 1, "failed": 0}
+    assert [email for email, _, _ in sent] == [str(verifiedAdmin["email"])]
+    assert "目标账号" in sent[0][2]
+    with getConnection() as connection:
+        row = connection.execute(
+            "SELECT user_id, email_type, body_encrypted FROM email_delivery_logs ORDER BY id DESC LIMIT 1",
+        ).fetchone()
+    assert row["user_id"] == verifiedAdmin["id"]
+    assert row["email_type"] == "admin_account_restriction_alert"
+    assert "规则编号：repeated_device_registration_high_velocity" in (decryptIfNeeded(row["body_encrypted"]) or "")
+
+
+def test_account_appeal_sends_administrator_alert_after_the_database_change(createUser, monkeypatch) -> None:
+    admin = createUser(email="admin@example.com", role="admin")
+    user = createUser(email="target@example.com")
+    alerts: list[dict] = []
+    with getConnection() as connection:
+        suspendUserAccount(connection, userId=int(user["id"]), reasonCode="test_restriction")
+
+    def fakeAlert(**kwargs: object) -> dict[str, int]:
+        with getConnection() as connection:
+            row = connection.execute(
+                "SELECT status FROM account_appeals WHERE id = ?",
+                (kwargs["appealId"],),
+            ).fetchone()
+        assert row and row["status"] == "pending"
+        alerts.append(dict(kwargs))
+        return {"attempted": 1, "delivered": 1, "failed": 0}
+
+    monkeypatch.setattr("CEACStatusBot.web.main.sendAdministratorAccountAlert", fakeAlert)
+    client = TestClient(app, base_url="http://localhost")
+    login = client.post(
+        "/api/auth/login",
+        headers={"Origin": "http://localhost"},
+        json={"email": user["email"], "password": "correct-password"},
+    )
+    assert login.status_code == 200
+    response = client.post(
+        "/api/account-appeals",
+        headers={"Origin": "http://localhost"},
+        json={"message": "这是用于验证管理员告警会在申诉落库后发送的测试说明。"},
+    )
+    assert response.status_code == 200
+    assert len(alerts) == 1
+    assert alerts[0]["alertType"] == "appeal_submitted"
+    assert alerts[0]["targetUserId"] == int(user["id"])
+    assert alerts[0]["targetEmail"] == str(user["email"])
+    assert alerts[0]["appealId"] == response.json()["appeal"]["id"]
+    assert admin["id"]
+
+
+def test_account_appeal_stays_successful_when_administrator_alert_fails(createUser, monkeypatch) -> None:
+    user = createUser(email="target@example.com")
+    with getConnection() as connection:
+        suspendUserAccount(connection, userId=int(user["id"]), reasonCode="test_restriction")
+
+    def failedAlert(**_: object) -> dict[str, int]:
+        raise RuntimeError("smtp unavailable")
+
+    monkeypatch.setattr("CEACStatusBot.web.main.sendAdministratorAccountAlert", failedAlert)
+    client = TestClient(app, base_url="http://localhost")
+    login = client.post(
+        "/api/auth/login",
+        headers={"Origin": "http://localhost"},
+        json={"email": user["email"], "password": "correct-password"},
+    )
+    assert login.status_code == 200
+    response = client.post(
+        "/api/account-appeals",
+        headers={"Origin": "http://localhost"},
+        json={"message": "这是用于验证管理员邮件故障不会影响申诉提交的测试说明。"},
+    )
+    assert response.status_code == 200
+    with getConnection() as connection:
+        appeal = connection.execute(
+            "SELECT status FROM account_appeals WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+            (user["id"],),
+        ).fetchone()
+    assert appeal and appeal["status"] == "pending"
 
 
 def test_legacy_users_table_receives_account_control_columns(tmp_path, monkeypatch, refreshTestSettings) -> None:

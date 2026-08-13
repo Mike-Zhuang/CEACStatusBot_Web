@@ -413,6 +413,129 @@ def sendAccountReviewResolutionEmail(*, userId: int, recipient: str) -> bool:
     return delivered
 
 
+def getAdministratorNotificationRecipients() -> list[dict[str, Any]]:
+    """优先向已验证的管理员账号发告警；仅在没有管理员账号时回退部署配置。"""
+    recipients: list[dict[str, Any]] = []
+    seenEmails: set[str] = set()
+    with getConnection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, email, timezone
+            FROM users
+            WHERE role = 'admin' AND is_email_verified = 1
+            ORDER BY id ASC
+            """,
+        ).fetchall()
+    for row in rows:
+        email = str(row["email"] or "").strip().lower()
+        if not email or email in seenEmails:
+            continue
+        seenEmails.add(email)
+        recipients.append(
+            {
+                "userId": int(row["id"]),
+                "email": email,
+                "timezone": resolveEmailTimezone(row.get("timezone") or ""),
+            },
+        )
+
+    if recipients:
+        return recipients
+
+    fallbackEmail = getSettings().defaultAdminEmail.strip().lower()
+    if fallbackEmail:
+        recipients.append(
+            {"userId": None, "email": fallbackEmail, "timezone": DEFAULT_EMAIL_TIMEZONE},
+        )
+    return recipients
+
+
+def sendAdministratorAccountAlert(
+    *,
+    alertType: str,
+    targetUserId: int,
+    targetEmail: str,
+    accountStatus: str,
+    occurredAt: str,
+    reasonCode: str = "",
+    appealId: int | None = None,
+) -> dict[str, int]:
+    """发送账号风控和申诉告警；申诉正文只留在加密后台记录中。"""
+    alertDefinitions = {
+        "automatic_restriction": {
+            "subject": "[CEACStatusBot 管理员告警] 自动规则已限制账号",
+            "emailType": "admin_account_restriction_alert",
+            "title": "自动规则已限制账号",
+            "details": [
+                f"账号状态：{'等待人工审核' if accountStatus == 'review' else '账号访问已受限'}",
+                f"规则编号：{reasonCode or '-'}",
+                "请在管理员页面核对关联证据和账号状态。",
+            ],
+        },
+        "appeal_submitted": {
+            "subject": "[CEACStatusBot 管理员告警] 收到账号申诉",
+            "emailType": "admin_account_appeal_alert",
+            "title": "收到账号申诉",
+            "details": [
+                f"当前账号状态：{'等待人工审核' if accountStatus == 'review' else '账号访问已受限'}",
+                f"申诉编号：{appealId if appealId is not None else '-'}",
+                "申诉正文未在邮件中转发，请在管理员页面查看，以避免扩散用户可能误填的敏感信息。",
+            ],
+        },
+    }
+    definition = alertDefinitions.get(alertType)
+    if definition is None:
+        raise ValueError("不支持的管理员账号告警类型")
+
+    recipients = getAdministratorNotificationRecipients()
+    result = {"attempted": len(recipients), "delivered": 0, "failed": 0}
+    for recipient in recipients:
+        formattedTime = formatEmailTime(occurredAt, str(recipient["timezone"]))
+        body = "\n".join(
+            [
+                "账号风控通知：",
+                str(definition["title"]),
+                "",
+                f"目标账号：{targetEmail}",
+                f"账号 ID：{targetUserId}",
+                f"发生时间：{formattedTime}",
+                *[str(line) for line in definition["details"]],
+                "",
+                f"管理员入口：{getSettings().appBaseUrl}",
+            ],
+        )
+        try:
+            delivered = sendSystemEmail(
+                str(recipient["email"]),
+                str(definition["subject"]),
+                body,
+                htmlBody=buildEmailHtml(body),
+            )
+        except Exception as exc:
+            print(f"[mail] Administrator account alert failed for user {targetUserId}: {type(exc).__name__}")
+            result["failed"] += 1
+            continue
+        if not delivered:
+            result["failed"] += 1
+            continue
+        result["delivered"] += 1
+        recipientUserId = recipient["userId"]
+        if recipientUserId is not None:
+            try:
+                recordEmailDelivery(
+                    userId=int(recipientUserId),
+                    caseId=None,
+                    emailType=str(definition["emailType"]),
+                    recipient=str(recipient["email"]),
+                    subject=str(definition["subject"]),
+                    body=body,
+                )
+            except Exception as exc:
+                # 邮件已经发送时，不因为审计写入短暂失败而干扰其他管理员告警。
+                print(f"[mail] Administrator account alert audit failed for user {targetUserId}: {type(exc).__name__}")
+    return result
+
+
 def enforceDailyEmailLimit(userId: int | None, connection: Any | None = None) -> None:
     if userId is None:
         return
