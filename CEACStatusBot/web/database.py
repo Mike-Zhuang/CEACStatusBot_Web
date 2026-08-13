@@ -21,9 +21,12 @@ def dictFactory(cursor: sqlite3.Cursor, row: sqlite3.Row) -> dict[str, Any]:
 def getConnection() -> Iterator[sqlite3.Connection]:
     databasePath = getSettings().databasePath
     databasePath.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(databasePath)
+    # Web 请求、调度器和 Worker 会同时写入 SQLite。给短暂写锁留出等待时间，
+    # 避免瞬时竞争直接变成对用户可见的 "database is locked"。
+    connection = sqlite3.connect(databasePath, timeout=20)
     connection.row_factory = dictFactory
     connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA busy_timeout = 20000")
     try:
         yield connection
         connection.commit()

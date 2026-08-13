@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from CEACStatusBot.web.database import getConnection
 from CEACStatusBot.web.main import app
-from CEACStatusBot.web.security_guard import enforceAuthCodeLimits, enforceRateLimit, requestIp
+from CEACStatusBot.web.security_guard import enforceAuthCodeLimits, enforceRateLimit, hashSecurityValue, requestIp
 
 
 def buildRequest() -> Request:
@@ -49,6 +52,37 @@ def test_generic_rate_limit_rejects_excess_requests() -> None:
     with pytest.raises(HTTPException) as excInfo:
         enforceRateLimit(request=request, scope="test", subject="subject", limit=1, windowSeconds=60)
     assert excInfo.value.status_code == 429
+
+
+def test_rate_limit_counter_is_atomic_for_concurrent_requests() -> None:
+    request = buildRequest()
+    scope = "concurrent-rate-limit-test"
+    subject = "shared-subject"
+
+    def incrementCounter(_: int) -> None:
+        enforceRateLimit(
+            request=request,
+            scope=scope,
+            subject=subject,
+            limit=100,
+            windowSeconds=60,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(incrementCounter, range(8)))
+
+    with getConnection() as connection:
+        row = connection.execute(
+            """
+            SELECT count
+            FROM rate_limit_counters
+            WHERE scope = ? AND subject_hash = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (scope, hashSecurityValue(subject)),
+        ).fetchone()
+    assert row and row["count"] == 8
 
 
 def test_auth_code_rate_limit_rejects_excess_requests() -> None:

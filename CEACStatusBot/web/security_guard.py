@@ -139,33 +139,30 @@ def enforceRateLimit(
     expiresAt = windowStart + timedelta(seconds=windowSeconds * 2)
     subjectHash = hashSecurityValue(subject)
     with getConnection() as connection:
+        # 认证与接口请求可能同时落到同一账号/设备窗口。单条 UPSERT 避免先查后插
+        # 在并发请求下触发唯一索引冲突，且每次请求都会准确累加。
+        connection.execute(
+            """
+            INSERT INTO rate_limit_counters (
+                scope, subject_hash, window_start, expires_at, count, updated_at
+            )
+            VALUES (?, ?, ?, ?, 1, ?)
+            ON CONFLICT(scope, subject_hash, window_start) DO UPDATE SET
+                count = rate_limit_counters.count + 1,
+                expires_at = excluded.expires_at,
+                updated_at = excluded.updated_at
+            """,
+            (scope, subjectHash, windowStart.isoformat(), expiresAt.isoformat(), now.isoformat()),
+        ).fetchone()
         row = connection.execute(
             """
-            SELECT count, locked_until
+            SELECT count
             FROM rate_limit_counters
             WHERE scope = ? AND subject_hash = ? AND window_start = ?
             """,
             (scope, subjectHash, windowStart.isoformat()),
         ).fetchone()
-        if row:
-            count = int(row["count"]) + 1
-            connection.execute(
-                """
-                UPDATE rate_limit_counters
-                SET count = ?, expires_at = ?, updated_at = ?
-                WHERE scope = ? AND subject_hash = ? AND window_start = ?
-                """,
-                (count, expiresAt.isoformat(), now.isoformat(), scope, subjectHash, windowStart.isoformat()),
-            )
-        else:
-            count = 1
-            connection.execute(
-                """
-                INSERT INTO rate_limit_counters (scope, subject_hash, window_start, expires_at, count, updated_at)
-                VALUES (?, ?, ?, ?, 1, ?)
-                """,
-                (scope, subjectHash, windowStart.isoformat(), expiresAt.isoformat(), now.isoformat()),
-            )
+        count = int(row["count"] if row else 1)
     if count > limit:
         logSecurityEvent(
             eventType=eventType,
@@ -206,6 +203,21 @@ def recordLoginFailure(request: Request, email: str) -> None:
     subjectHash = hashSecurityValue(email)
     lockUntil: str | None = None
     with getConnection() as connection:
+        # 和通用限流器一样，登录失败计数也必须是原子累加，避免并发猜密码时
+        # 因唯一键竞争而漏记或抛出 500。
+        connection.execute(
+            """
+            INSERT INTO rate_limit_counters (
+                scope, subject_hash, window_start, expires_at, count, locked_until, updated_at
+            )
+            VALUES ('login_failure_email', ?, ?, ?, 1, NULL, ?)
+            ON CONFLICT(scope, subject_hash, window_start) DO UPDATE SET
+                count = rate_limit_counters.count + 1,
+                expires_at = excluded.expires_at,
+                updated_at = excluded.updated_at
+            """,
+            (subjectHash, windowStart.isoformat(), (windowStart + timedelta(hours=2)).isoformat(), now.isoformat()),
+        ).fetchone()
         row = connection.execute(
             """
             SELECT count
@@ -214,35 +226,23 @@ def recordLoginFailure(request: Request, email: str) -> None:
             """,
             (subjectHash, windowStart.isoformat()),
         ).fetchone()
-        count = int(row["count"]) + 1 if row else 1
+        count = int(row["count"] if row else 1)
         if count >= settings.authLoginEmailFailureLimitPer15Minutes:
             minutes = 60 if count >= settings.authLoginEmailFailureLimitPer15Minutes * 2 else 15
             lockUntil = (now + timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
-        if row:
+        if lockUntil:
             connection.execute(
                 """
                 UPDATE rate_limit_counters
-                SET count = ?, expires_at = ?, locked_until = ?, updated_at = ?
+                SET locked_until = ?, updated_at = ?
                 WHERE scope = 'login_failure_email' AND subject_hash = ? AND window_start = ?
                 """,
                 (
-                    count,
-                    (windowStart + timedelta(hours=2)).isoformat(),
                     lockUntil,
                     now.isoformat(),
                     subjectHash,
                     windowStart.isoformat(),
                 ),
-            )
-        else:
-            connection.execute(
-                """
-                INSERT INTO rate_limit_counters (
-                    scope, subject_hash, window_start, expires_at, count, locked_until, updated_at
-                )
-                VALUES ('login_failure_email', ?, ?, ?, ?, ?, ?)
-                """,
-                (subjectHash, windowStart.isoformat(), (windowStart + timedelta(hours=2)).isoformat(), count, lockUntil, now.isoformat()),
             )
     logSecurityEvent(
         eventType="login_failed",
