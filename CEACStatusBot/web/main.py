@@ -25,6 +25,7 @@ from .account_controls import (
     suspendUserAccount,
 )
 from .case_service import (
+    RestrictedApplicationReuseError,
     createCase,
     deleteCase,
     enqueueCaseQuery,
@@ -997,6 +998,16 @@ def apiCreateCase(payload: CeacCaseInput, user: dict = Depends(currentUserDepend
             if job:
                 initialQueryJob = {"jobId": job["id"], "status": job["status"]}
         return {"case": case, "initialQueryJob": initialQueryJob}
+    except RestrictedApplicationReuseError as exc:
+        notifyAccountRestriction(
+            userId=int(user["id"]),
+            email=str(user["email"]),
+            accountStatus="review",
+            restrictedAt=exc.restrictedAt,
+            automaticRule=True,
+            reasonCode=exc.reasonCode,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -1005,6 +1016,16 @@ def apiCreateCase(payload: CeacCaseInput, user: dict = Depends(currentUserDepend
 def apiPatchCase(caseId: int, payload: CeacCasePatch, user: dict = Depends(currentUserDependency)) -> dict:
     try:
         case = patchCase(caseId, int(user["id"]), payload)
+    except RestrictedApplicationReuseError as exc:
+        notifyAccountRestriction(
+            userId=int(user["id"]),
+            email=str(user["email"]),
+            accountStatus="review",
+            restrictedAt=exc.restrictedAt,
+            automaticRule=True,
+            reasonCode=exc.reasonCode,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not case:

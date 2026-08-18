@@ -308,6 +308,50 @@ def suspendUserAccount(
     return True
 
 
+def placeUserAccountUnderReview(
+    connection: Any,
+    *,
+    userId: int,
+    reasonCode: str,
+    adminNote: str = "",
+) -> bool:
+    """将高风险新账号置于人工审核，并立即停止其现有查询活动。"""
+    user = connection.execute("SELECT role FROM users WHERE id = ?", (userId,)).fetchone()
+    if not user:
+        return False
+    if user["role"] == "admin":
+        raise ValueError("不能限制管理员账号")
+    nowIso = _nowIso()
+    connection.execute(
+        """
+        UPDATE users
+        SET account_status = ?, suspended_at = NULL, suspension_reason = ?,
+            suspension_note_encrypted = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (ACCOUNT_STATUS_REVIEW, reasonCode, _encrypt(adminNote), nowIso, userId),
+    )
+    connection.execute(
+        "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+        (nowIso, userId),
+    )
+    _disableUserMonitoring(connection, userId, nowIso)
+    setUserRiskFlag(
+        connection,
+        userId=userId,
+        riskLevel="review",
+        reasonCode=reasonCode,
+        adminNote=adminNote,
+    )
+    _recordAccountEvent(
+        connection,
+        eventType="account_review_required",
+        userId=userId,
+        detail=reasonCode,
+    )
+    return True
+
+
 def restoreUserAccount(
     connection: Any,
     *,
@@ -356,6 +400,7 @@ def createRiskGroup(
     sharedStandardProfileLimit: int = 1,
     suspendMembers: bool = False,
     evidenceType: str = "admin_review",
+    evidenceReferenceHash: str = "",
 ) -> dict[str, Any]:
     normalizedIds = tuple(sorted({int(userId) for userId in userIds}))
     if not normalizedIds:
@@ -395,10 +440,12 @@ def createRiskGroup(
     for userId in normalizedIds:
         connection.execute(
             """
-            INSERT INTO account_risk_group_members (group_id, user_id, evidence_type, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO account_risk_group_members (
+                group_id, user_id, evidence_type, evidence_reference_hash, created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (groupId, userId, evidenceType, nowIso),
+            (groupId, userId, evidenceType, evidenceReferenceHash, nowIso),
         )
         if suspendMembers:
             suspendUserAccount(connection, userId=userId, reasonCode=reasonCode, adminNote=adminNote)

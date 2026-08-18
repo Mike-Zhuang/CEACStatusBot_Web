@@ -145,8 +145,11 @@ def initializeDatabase() -> None:
                 display_name TEXT NOT NULL,
                 location TEXT NOT NULL,
                 application_num TEXT NOT NULL,
+                application_num_hash TEXT NOT NULL DEFAULT '',
                 passport_number TEXT NOT NULL,
+                passport_number_hash TEXT NOT NULL DEFAULT '',
                 surname TEXT NOT NULL,
+                surname_hash TEXT NOT NULL DEFAULT '',
                 receive_email TEXT NOT NULL,
                 sender_mode TEXT NOT NULL DEFAULT 'system',
                 is_enabled INTEGER NOT NULL DEFAULT 1,
@@ -608,6 +611,21 @@ def initializeDatabase() -> None:
             connection.execute(
                 "ALTER TABLE ceac_cases ADD COLUMN last_trigger_type TEXT",
             )
+        if "application_num_hash" not in columns:
+            connection.execute(
+                "ALTER TABLE ceac_cases ADD COLUMN application_num_hash TEXT NOT NULL DEFAULT ''",
+            )
+        if "passport_number_hash" not in columns:
+            connection.execute(
+                "ALTER TABLE ceac_cases ADD COLUMN passport_number_hash TEXT NOT NULL DEFAULT ''",
+            )
+        if "surname_hash" not in columns:
+            connection.execute(
+                "ALTER TABLE ceac_cases ADD COLUMN surname_hash TEXT NOT NULL DEFAULT ''",
+            )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ceac_cases_application_num_hash ON ceac_cases(application_num_hash)",
+        )
         irccColumns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(ircc_cases)").fetchall()

@@ -7,9 +7,12 @@ from typing import Any
 from CEACStatusBot.request import query_status
 
 from .account_controls import (
+    RISK_GROUP_STATE_REVIEW,
+    createRiskGroup,
     enforceProfileActivationLimit,
     enforceProfileCreationLimit,
     isUserAccountActive,
+    placeUserAccountUnderReview,
 )
 from .config import getSettings
 from .database import getConnection, utcNowIso
@@ -36,10 +39,18 @@ PREMIUM_WORKER_PRIORITY = 50
 CEAC_FAILURE_NOTICE_THRESHOLD = 5
 CEAC_FAILURE_STOP_THRESHOLD = 10
 CEAC_FAILURE_SLOW_STOP_DAYS = 7
+RESTRICTED_APPLICATION_REUSE_REASON = "reused_restricted_ceac_application"
 QUERY_TIMEOUT_ERROR_MESSAGE = (
     "查询运行超过系统设定时间仍未完成，已标记为失败。可能是信息填写有误、CEAC/GTS 服务暂时异常或服务器繁忙；"
     "请核对信息输入是否正确后重试，仍有问题请联系管理员。"
 )
+
+
+class RestrictedApplicationReuseError(ValueError):
+    def __init__(self, restrictedAt: str) -> None:
+        super().__init__("该签证申请与已受限账号重复，当前账号已进入人工审核。")
+        self.restrictedAt = restrictedAt
+        self.reasonCode = RESTRICTED_APPLICATION_REUSE_REASON
 
 
 def isIssuedStatus(status: str | None) -> bool:
@@ -278,44 +289,148 @@ def upsertSmtpConfig(connection: Any, userId: int, smtpConfig: Any) -> None:
     )
 
 
+def restrictedApplicationOwnerIds(connection: Any, userId: int, applicationNum: str) -> tuple[int, ...]:
+    applicationHash = hashSensitiveLookup(applicationNum)
+    rows = connection.execute(
+        """
+        SELECT DISTINCT c.user_id, c.application_num, c.application_num_hash
+        FROM ceac_cases c
+        JOIN users u ON u.id = c.user_id
+        WHERE c.user_id != ?
+          AND u.role != 'admin'
+          AND (
+              COALESCE(u.account_status, 'active') = 'suspended'
+              OR EXISTS (
+                  SELECT 1
+                  FROM account_risk_group_members m
+                  JOIN account_risk_groups g ON g.id = m.group_id
+                  WHERE m.user_id = c.user_id
+                    AND g.enforcement_state = 'enforced'
+              )
+          )
+          AND (c.application_num_hash = ? OR c.application_num_hash = '')
+        """,
+        (userId, applicationHash),
+    ).fetchall()
+    ownerIds = set()
+    for row in rows:
+        storedHash = str(row["application_num_hash"] or "")
+        if storedHash == applicationHash:
+            ownerIds.add(int(row["user_id"]))
+            continue
+        storedApplication = decryptIfNeeded(row["application_num"]) or ""
+        if storedApplication and hashSensitiveLookup(storedApplication) == applicationHash:
+            ownerIds.add(int(row["user_id"]))
+    return tuple(sorted(ownerIds))
+
+
+def hasApprovedRestrictedApplicationAppeal(connection: Any, userId: int, applicationHash: str) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM account_risk_groups g
+        JOIN account_risk_group_members m
+          ON m.group_id = g.id
+         AND m.user_id = ?
+         AND m.evidence_reference_hash = ?
+        JOIN account_appeals a
+          ON a.user_id = m.user_id
+         AND a.status = 'approved'
+         AND a.reviewed_at IS NOT NULL
+         AND a.reviewed_at >= g.created_at
+        WHERE g.reason_code = ?
+        LIMIT 1
+        """,
+        (userId, applicationHash, RESTRICTED_APPLICATION_REUSE_REASON),
+    ).fetchone()
+    return row is not None
+
+
+def reviewRestrictedApplicationReuse(connection: Any, userId: int, applicationNum: str) -> str | None:
+    user = connection.execute("SELECT role, account_status FROM users WHERE id = ?", (userId,)).fetchone()
+    if not user or user["role"] == "admin":
+        return None
+    applicationHash = hashSensitiveLookup(applicationNum)
+    if hasApprovedRestrictedApplicationAppeal(connection, userId, applicationHash):
+        return None
+    ownerIds = restrictedApplicationOwnerIds(connection, userId, applicationNum)
+    if not ownerIds:
+        return None
+
+    now = utcNowIso()
+    placeUserAccountUnderReview(
+        connection,
+        userId=userId,
+        reasonCode=RESTRICTED_APPLICATION_REUSE_REASON,
+        adminNote="自动规则：提交的 CEAC 申请号曾属于已限制账号，等待人工审核。",
+    )
+    createRiskGroup(
+        connection,
+        userIds=(*ownerIds, userId),
+        label="受限 CEAC 申请复用审核组",
+        reasonCode=RESTRICTED_APPLICATION_REUSE_REASON,
+        adminNote="新账号复用了已限制账号的 CEAC 申请号；仅限制新账号，既有成员状态不变。",
+        createdByUserId=None,
+        enforcementState=RISK_GROUP_STATE_REVIEW,
+        suspendMembers=False,
+        evidenceType="reused_ceac_application",
+        evidenceReferenceHash=applicationHash,
+    )
+    return now
+
+
 def createCase(userId: int, payload: CeacCaseInput) -> dict[str, Any]:
     now = utcNowIso()
+    caseId: int | None = None
+    restrictedAt: str | None = None
     with getConnection() as connection:
-        user = connection.execute("SELECT id FROM users WHERE id = ?", (userId,)).fetchone()
+        user = connection.execute("SELECT id, role FROM users WHERE id = ?", (userId,)).fetchone()
         if not user:
             raise ValueError("用户不存在")
         if payload.emailNotificationsEnabled and not payload.receiveEmail:
             raise ValueError("开启邮件推送时必须填写接收提醒邮箱。")
-        enforceProfileCreationLimit(connection, userId)
-        upsertSmtpConfig(connection, userId, payload.smtpConfig)
-        cursor = connection.execute(
-            """
-            INSERT INTO ceac_cases (
-                user_id, display_name, location, application_num, passport_number, surname,
-                receive_email, sender_mode, is_enabled, email_notifications_enabled,
-                sort_order, next_check_at, created_at, updated_at
+        restrictedAt = reviewRestrictedApplicationReuse(connection, userId, payload.applicationNum)
+        if restrictedAt is None:
+            enforceProfileCreationLimit(connection, userId)
+            upsertSmtpConfig(connection, userId, payload.smtpConfig)
+            cursor = connection.execute(
+                """
+                INSERT INTO ceac_cases (
+                    user_id, display_name, location,
+                    application_num, application_num_hash,
+                    passport_number, passport_number_hash,
+                    surname, surname_hash,
+                    receive_email, sender_mode, is_enabled, email_notifications_enabled,
+                    sort_order, next_check_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    userId,
+                    payload.displayName,
+                    payload.location,
+                    encryptSecret(payload.applicationNum),
+                    hashSensitiveLookup(payload.applicationNum),
+                    encryptSecret(payload.passportNumber),
+                    hashSensitiveLookup(payload.passportNumber),
+                    encryptSecret(payload.surname),
+                    hashSensitiveLookup(payload.surname),
+                    encryptSecret(str(payload.receiveEmail or "")),
+                    payload.senderMode,
+                    int(payload.isEnabled),
+                    int(payload.emailNotificationsEnabled),
+                    nextProfileSortOrder(connection, userId),
+                    computeNextCheckAt() if payload.isEnabled else None,
+                    now,
+                    now,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                userId,
-                payload.displayName,
-                payload.location,
-                encryptSecret(payload.applicationNum),
-                encryptSecret(payload.passportNumber),
-                encryptSecret(payload.surname),
-                encryptSecret(str(payload.receiveEmail or "")),
-                payload.senderMode,
-                int(payload.isEnabled),
-                int(payload.emailNotificationsEnabled),
-                nextProfileSortOrder(connection, userId),
-                computeNextCheckAt() if payload.isEnabled else None,
-                now,
-                now,
-            ),
-        )
-        caseId = cursor.lastrowid
-        connection.execute("UPDATE users SET has_application_profile_history = 1, updated_at = ? WHERE id = ?", (now, userId))
+            caseId = int(cursor.lastrowid)
+            connection.execute("UPDATE users SET has_application_profile_history = 1, updated_at = ? WHERE id = ?", (now, userId))
+    if restrictedAt is not None:
+        raise RestrictedApplicationReuseError(restrictedAt)
+    if caseId is None:
+        raise RuntimeError("创建档案失败")
     case = getCase(int(caseId), userId)
     if case is None:
         raise RuntimeError("创建档案失败")
@@ -346,37 +461,52 @@ def patchCase(caseId: int, userId: int, payload: CeacCasePatch, *, allowLockedEn
     }
     encryptedKeys = {"applicationNum", "passportNumber", "surname", "receiveEmail"}
     now = utcNowIso()
+    restrictedAt: str | None = None
     with getConnection() as connection:
-        if data.get("isEnabled") is True and not current.get("isEnabled"):
-            enforceProfileActivationLimit(connection, userId, tableName="ceac_cases", profileId=caseId)
-        if payload.smtpConfig:
-            upsertSmtpConfig(connection, userId, payload.smtpConfig)
-        assignments: list[str] = []
-        values: list[Any] = []
-        for key, column in columnMap.items():
-            if key not in data:
-                continue
-            value = data[key]
-            if key in encryptedKeys and value is not None:
-                value = encryptSecret(str(value))
-            if key == "isEnabled":
-                value = int(value)
-                assignments.append("next_check_at = ?")
-                values.append(computeNextCheckAt() if value else None)
-                if value and allowLockedEnable:
-                    assignments.append("ceac_auto_locked_by_passport_slot = ?")
-                    values.append(0)
-            if key == "emailNotificationsEnabled":
-                value = int(value)
-            assignments.append(f"{column} = ?")
-            values.append(value)
-        assignments.append("updated_at = ?")
-        values.append(now)
-        values.extend([caseId, userId])
-        connection.execute(
-            f"UPDATE ceac_cases SET {', '.join(assignments)} WHERE id = ? AND user_id = ?",
-            tuple(values),
-        )
+        if "applicationNum" in data:
+            restrictedAt = reviewRestrictedApplicationReuse(connection, userId, str(data["applicationNum"]))
+        if restrictedAt is None:
+            if data.get("isEnabled") is True and not current.get("isEnabled"):
+                enforceProfileActivationLimit(connection, userId, tableName="ceac_cases", profileId=caseId)
+            if payload.smtpConfig:
+                upsertSmtpConfig(connection, userId, payload.smtpConfig)
+            assignments: list[str] = []
+            values: list[Any] = []
+            for key, column in columnMap.items():
+                if key not in data:
+                    continue
+                value = data[key]
+                if key in encryptedKeys and value is not None:
+                    value = encryptSecret(str(value))
+                if key == "applicationNum" and data[key] is not None:
+                    assignments.append("application_num_hash = ?")
+                    values.append(hashSensitiveLookup(str(data[key])))
+                if key == "passportNumber" and data[key] is not None:
+                    assignments.append("passport_number_hash = ?")
+                    values.append(hashSensitiveLookup(str(data[key])))
+                if key == "surname" and data[key] is not None:
+                    assignments.append("surname_hash = ?")
+                    values.append(hashSensitiveLookup(str(data[key])))
+                if key == "isEnabled":
+                    value = int(value)
+                    assignments.append("next_check_at = ?")
+                    values.append(computeNextCheckAt() if value else None)
+                    if value and allowLockedEnable:
+                        assignments.append("ceac_auto_locked_by_passport_slot = ?")
+                        values.append(0)
+                if key == "emailNotificationsEnabled":
+                    value = int(value)
+                assignments.append(f"{column} = ?")
+                values.append(value)
+            assignments.append("updated_at = ?")
+            values.append(now)
+            values.extend([caseId, userId])
+            connection.execute(
+                f"UPDATE ceac_cases SET {', '.join(assignments)} WHERE id = ? AND user_id = ?",
+                tuple(values),
+            )
+    if restrictedAt is not None:
+        raise RestrictedApplicationReuseError(restrictedAt)
     return getCase(caseId, userId)
 
 
@@ -722,6 +852,16 @@ def migrateEncryptedFields() -> None:
                 if value and not isEncryptedSecret(value):
                     assignments.append(f"{column} = ?")
                     values.append(encryptSecret(str(value)))
+            for sourceColumn, hashColumn in (
+                ("application_num", "application_num_hash"),
+                ("passport_number", "passport_number_hash"),
+                ("surname", "surname_hash"),
+            ):
+                value = decryptIfNeeded(row[sourceColumn]) or ""
+                expectedHash = hashSensitiveLookup(value) if value else ""
+                if str(row.get(hashColumn) or "") != expectedHash:
+                    assignments.append(f"{hashColumn} = ?")
+                    values.append(expectedHash)
             if assignments:
                 values.append(row["id"])
                 connection.execute(f"UPDATE ceac_cases SET {', '.join(assignments)} WHERE id = ?", tuple(values))
