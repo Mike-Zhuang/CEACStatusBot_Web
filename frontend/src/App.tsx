@@ -409,6 +409,52 @@ interface AccountAppeal {
   reviewNote: string;
   message?: string;
   adminNote?: string;
+  riskReasonCode?: string;
+  riskEvidence?: {
+    sameRegistrationDeviceAccountCount: number;
+    sameRegistrationIpAccountCount: number;
+    reusedApplicationSuspendedAccountCount: number;
+    reusedApplicationRestoredAccountCount: number;
+    reusedApplicationOtherAccountCount: number;
+  };
+}
+
+function defaultAppealRejectNote(appeal: AccountAppeal, languageMode: LanguageMode): string {
+  const evidence = appeal.riskEvidence;
+  if (appeal.riskReasonCode === "reused_restricted_ceac_application" && evidence) {
+    if (languageMode === "en") {
+      return [
+        "We cannot approve this appeal based on the information provided.",
+        `We verified that this account used the same registration device as ${evidence.sameRegistrationDeviceAccountCount} other accounts and the same registration IP as ${evidence.sameRegistrationIpAccountCount} other account.`,
+        `The same DS-160 application also appears in ${evidence.reusedApplicationSuspendedAccountCount} restricted account, ${evidence.reusedApplicationRestoredAccountCount} account restored after appeal, and this account.`,
+        "Your appeal did not explain these links. Please explain your relationship to the related accounts and the visa applicant, then submit a new appeal. Do not provide passwords, verification codes, full passport numbers, or other login credentials.",
+      ].join("\n\n");
+    }
+    return [
+      "当前申诉暂不通过。",
+      `经核对，该账号与 ${evidence.sameRegistrationDeviceAccountCount} 个其他账号使用相同的注册设备，与 ${evidence.sameRegistrationIpAccountCount} 个其他账号使用相同的注册 IP。`,
+      `同一 DS-160 申请已分别出现在 ${evidence.reusedApplicationSuspendedAccountCount} 个已暂停账号、${evidence.reusedApplicationRestoredAccountCount} 个申诉恢复账号和当前账号中。`,
+      "你提交的说明没有解释上述关联。请说明你与相关账号及该签证申请人的关系后重新提交申诉。请勿提供密码、验证码、完整护照号或其他登录凭据。",
+    ].join("\n\n");
+  }
+  if (appeal.riskReasonCode === "shared_device_registration_manual_review" && evidence) {
+    if (languageMode === "en") {
+      return `We cannot approve this appeal based on the information provided. This account shares a registration device with ${evidence.sameRegistrationDeviceAccountCount} other account and a registration IP with ${evidence.sameRegistrationIpAccountCount} other account. Please explain your relationship to the related accounts, then submit a new appeal. Do not provide passwords, verification codes, or identity document numbers.`;
+    }
+    return `当前申诉暂不通过。该账号与 ${evidence.sameRegistrationDeviceAccountCount} 个其他账号使用相同的注册设备，与 ${evidence.sameRegistrationIpAccountCount} 个其他账号使用相同的注册 IP。请说明你与相关账号的关系后重新提交申诉。请勿提供密码、验证码或证件号码。`;
+  }
+  return languageMode === "en"
+    ? "We cannot restore access based on the information provided. Please explain your relationship to any related accounts and why access should be restored, then submit a new appeal. Do not provide passwords, verification codes, or identity document numbers."
+    : "当前申诉提供的信息不足，暂不恢复账号访问。请说明你与相关账号的关系及需要恢复访问的原因后重新提交申诉。请勿提供密码、验证码或证件号码。";
+}
+
+function formatAppealRiskEvidence(appeal: AccountAppeal, languageMode: LanguageMode): string {
+  const evidence = appeal.riskEvidence;
+  if (!evidence) return "-";
+  if (languageMode === "en") {
+    return `Same registration device: ${evidence.sameRegistrationDeviceAccountCount} · Same registration IP: ${evidence.sameRegistrationIpAccountCount} · Reused DS-160: ${evidence.reusedApplicationSuspendedAccountCount} restricted, ${evidence.reusedApplicationRestoredAccountCount} restored`;
+  }
+  return `同注册设备：${evidence.sameRegistrationDeviceAccountCount} 个 · 同注册 IP：${evidence.sameRegistrationIpAccountCount} 个 · 重复 DS-160：已暂停 ${evidence.reusedApplicationSuspendedAccountCount} 个、申诉恢复 ${evidence.reusedApplicationRestoredAccountCount} 个`;
 }
 
 interface AdminRiskGroup {
@@ -773,6 +819,10 @@ const translations = {
     accountAppealReviewedAt: "Reviewed",
     accountAppealMessage: "Appeal message",
     accountAppealReviewNote: "Review note",
+    accountAppealReviewNoteHelp: "The account owner will see this note. State the verified reason and what they should explain in a new appeal.",
+    accountAppealApproveReviewNote: "Account access has been restored. Automatic monitoring remains off until you enable it again.",
+    accountAppealReviewEvidence: "Verified review evidence",
+    rejectWithNote: "Reject and send note",
     accountAccessRestored: "Account restored.",
     accountSuspended: "Account restricted and monitoring paused.",
     accountRiskGroups: "Linked account groups",
@@ -1099,6 +1149,10 @@ const translations = {
     accountAppealReviewedAt: "处理时间",
     accountAppealMessage: "申诉说明",
     accountAppealReviewNote: "处理说明",
+    accountAppealReviewNoteHelp: "该说明会显示给申诉用户。请写明已经核实的依据，以及重新申诉时需要补充的内容。",
+    accountAppealApproveReviewNote: "账号访问已恢复。自动监控仍保持关闭，需要你自行确认后重新开启。",
+    accountAppealReviewEvidence: "已核实的审核依据",
+    rejectWithNote: "驳回并发送说明",
     accountAccessRestored: "账号访问已恢复。",
     accountSuspended: "账号已限制，自动监控已暂停。",
     accountRiskGroups: "关联账号组",
@@ -2962,14 +3016,14 @@ export function App() {
     }
   }
 
-  async function reviewAdminAppeal(appealId: number, decision: "approved" | "rejected") {
+  async function reviewAdminAppeal(appealId: number, decision: "approved" | "rejected", reviewNote: string) {
     setIsBusy(true);
     try {
       await requestJson<{ appeal: AccountAppeal }>(`/api/admin/appeals/${appealId}/review`, {
         method: "POST",
         body: JSON.stringify({
           decision,
-          reviewNote: decision === "approved" ? "账号访问已恢复。" : "当前无法恢复账号访问。",
+          reviewNote: reviewNote.trim(),
           adminNote: "管理员在控制台处理申诉。",
           removeFromEnforcedGroups: false,
         }),
@@ -5053,7 +5107,7 @@ function AdminPanel(props: {
   restoreAccount: (userId: number) => Promise<void>;
   flagAccount: (userId: number) => Promise<void>;
   createRiskGroup: (payload: RiskGroupCreatePayload) => Promise<void>;
-  reviewAppeal: (appealId: number, decision: "approved" | "rejected") => Promise<void>;
+  reviewAppeal: (appealId: number, decision: "approved" | "rejected", reviewNote: string) => Promise<void>;
   restoreCeacAutoQuery: (caseId: number) => Promise<void>;
   isBusy: boolean;
 }) {
@@ -5069,6 +5123,7 @@ function AdminPanel(props: {
   const [riskGroupNote, setRiskGroupNote] = useState("");
   const [riskGroupEnforced, setRiskGroupEnforced] = useState(true);
   const [riskGroupSuspendMembers, setRiskGroupSuspendMembers] = useState(false);
+  const [appealReviewNotes, setAppealReviewNotes] = useState<Record<number, string>>({});
   const [pendingAccountAction, setPendingAccountAction] = useState<
     | { type: "suspend"; userId: number }
     | { type: "createRiskGroup"; payload: RiskGroupCreatePayload }
@@ -5526,17 +5581,46 @@ function AdminPanel(props: {
                   { label: props.t("accountAppealMessage"), value: appeal.message || "-" },
                   { label: props.t("createdAt"), value: formatTime(appeal.submittedAt, props.languageMode), mono: true },
                   { label: props.t("status"), value: appeal.status },
+                  ...(appeal.riskEvidence ? [{ label: props.t("accountAppealReviewEvidence"), value: formatAppealRiskEvidence(appeal, props.languageMode) }] : []),
                   ...(appeal.reviewNote ? [{ label: props.t("accountAppealReviewNote"), value: appeal.reviewNote }] : []),
                 ]}
               />
               {appeal.status === "pending" && (
-                <div className="admin-account-actions">
-                  <button type="button" className="button secondary compact-button" disabled={props.isBusy} onClick={() => props.reviewAppeal(appeal.id, "approved")}>
-                    <Check size={14} /> {props.t("approve")}
-                  </button>
-                  <button type="button" className="button tertiary compact-button" disabled={props.isBusy} onClick={() => props.reviewAppeal(appeal.id, "rejected")}>
-                    <X size={14} /> {props.t("reject")}
-                  </button>
+                <div className="admin-appeal-review">
+                  <label>
+                    {props.t("accountAppealReviewNote")}
+                    <textarea
+                      value={appealReviewNotes[appeal.id] ?? defaultAppealRejectNote(appeal, props.languageMode)}
+                      onChange={(event) => setAppealReviewNotes((current) => ({ ...current, [appeal.id]: event.target.value }))}
+                      maxLength={2000}
+                      aria-describedby={`appeal-review-help-${appeal.id}`}
+                    />
+                  </label>
+                  <p id={`appeal-review-help-${appeal.id}`} className="form-intro compact">
+                    {props.t("accountAppealReviewNoteHelp")}
+                  </p>
+                  <div className="admin-account-actions">
+                    <button
+                      type="button"
+                      className="button secondary compact-button"
+                      disabled={props.isBusy}
+                      onClick={() => props.reviewAppeal(appeal.id, "approved", props.t("accountAppealApproveReviewNote"))}
+                    >
+                      <Check size={14} /> {props.t("approve")}
+                    </button>
+                    <button
+                      type="button"
+                      className="button tertiary compact-button"
+                      disabled={props.isBusy || !(appealReviewNotes[appeal.id] ?? defaultAppealRejectNote(appeal, props.languageMode)).trim()}
+                      onClick={() => props.reviewAppeal(
+                        appeal.id,
+                        "rejected",
+                        appealReviewNotes[appeal.id] ?? defaultAppealRejectNote(appeal, props.languageMode),
+                      )}
+                    >
+                      <X size={14} /> {props.t("rejectWithNote")}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

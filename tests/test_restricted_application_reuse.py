@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 from CEACStatusBot.web.account_controls import (
     createRiskGroup,
+    getLatestAccountAppeal,
+    placeUserAccountUnderReview,
     reviewAccountAppeal,
     submitAccountAppeal,
     suspendUserAccount,
@@ -200,6 +202,79 @@ def test_approved_appeal_allows_only_the_reviewed_application(createUser) -> Non
             int(newcomer["id"]),
             CeacCasePatch(applicationNum="AA00APPEAL2"),
         )
+
+
+def test_admin_appeal_includes_verified_risk_evidence_counts(createUser) -> None:
+    target = createUser(email="target@example.com")
+    suspendedOwner = createUser(email="suspended@example.com")
+    restoredOwner = createUser(email="restored@example.com")
+    admin = createUser(email="admin@example.com", role="admin")
+    for user in (target, suspendedOwner, restoredOwner):
+        createCase(int(user["id"]), caseInput("AA00EVIDENCE1"))
+
+    with getConnection() as connection:
+        connection.execute(
+            """
+            UPDATE users
+            SET terms_acceptance_device_hash = 'shared-device'
+            WHERE id IN (?, ?, ?)
+            """,
+            (target["id"], suspendedOwner["id"], restoredOwner["id"]),
+        )
+        connection.execute(
+            "UPDATE users SET terms_acceptance_ip_hash = 'shared-ip' WHERE id IN (?, ?)",
+            (target["id"], suspendedOwner["id"]),
+        )
+        connection.execute(
+            "UPDATE users SET terms_acceptance_ip_hash = 'different-ip' WHERE id = ?",
+            (restoredOwner["id"],),
+        )
+        suspendUserAccount(
+            connection,
+            userId=int(suspendedOwner["id"]),
+            reasonCode="confirmed_abuse",
+        )
+        suspendUserAccount(
+            connection,
+            userId=int(restoredOwner["id"]),
+            reasonCode="temporary_review",
+        )
+        restoredAppeal = submitAccountAppeal(
+            connection,
+            userId=int(restoredOwner["id"]),
+            message="这是用于验证恢复账号证据分类的申诉说明。",
+        )
+        reviewAccountAppeal(
+            connection,
+            appealId=int(restoredAppeal["id"]),
+            reviewerUserId=int(admin["id"]),
+            decision="approved",
+            reviewNote="已核实并恢复。",
+            adminNote="测试。",
+            removeFromEnforcedGroups=False,
+        )
+        placeUserAccountUnderReview(
+            connection,
+            userId=int(target["id"]),
+            reasonCode=RESTRICTED_APPLICATION_REUSE_REASON,
+            adminNote="测试风险证据。",
+        )
+        submitAccountAppeal(
+            connection,
+            userId=int(target["id"]),
+            message="这是用于验证管理员可见风险证据的申诉说明。",
+        )
+        appeal = getLatestAccountAppeal(connection, int(target["id"]), adminView=True)
+
+    assert appeal is not None
+    assert appeal["riskReasonCode"] == RESTRICTED_APPLICATION_REUSE_REASON
+    assert appeal["riskEvidence"] == {
+        "sameRegistrationDeviceAccountCount": 2,
+        "sameRegistrationIpAccountCount": 1,
+        "reusedApplicationSuspendedAccountCount": 1,
+        "reusedApplicationRestoredAccountCount": 1,
+        "reusedApplicationOtherAccountCount": 0,
+    }
 
 
 def test_restricted_application_api_notifies_user_and_administrator_after_commit(createUser, monkeypatch) -> None:

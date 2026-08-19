@@ -2328,6 +2328,24 @@ textarea {
   padding-block: 7px;
 }
 
+.admin-appeal-review {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.admin-appeal-review textarea {
+  min-height: 168px;
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.admin-appeal-review .admin-account-actions {
+  margin-top: 4px;
+}
+
 .case-list.compact {
   gap: 0;
 }

@@ -704,6 +704,91 @@ def getLatestAccountAppeal(connection: Any, userId: int, *, includeMessage: bool
     if includeMessage or adminView:
         appeal["message"] = _decrypt(row.get("message_encrypted") or "")
     if adminView:
+        flag = connection.execute(
+            "SELECT reason_code FROM account_risk_flags WHERE user_id = ?",
+            (userId,),
+        ).fetchone()
+        user = connection.execute(
+            """
+            SELECT terms_acceptance_device_hash, terms_acceptance_ip_hash
+            FROM users WHERE id = ?
+            """,
+            (userId,),
+        ).fetchone()
+        registrationDeviceCount = 0
+        registrationIpCount = 0
+        if user and user["terms_acceptance_device_hash"]:
+            registrationDeviceCount = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(DISTINCT id) AS count
+                    FROM users
+                    WHERE id != ? AND role = 'user'
+                      AND terms_acceptance_device_hash = ?
+                    """,
+                    (userId, user["terms_acceptance_device_hash"]),
+                ).fetchone()["count"],
+            )
+        if user and user["terms_acceptance_ip_hash"]:
+            registrationIpCount = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(DISTINCT id) AS count
+                    FROM users
+                    WHERE id != ? AND role = 'user'
+                      AND terms_acceptance_ip_hash = ?
+                    """,
+                    (userId, user["terms_acceptance_ip_hash"]),
+                ).fetchone()["count"],
+            )
+
+        applicationHashes = [
+            str(case["application_num_hash"])
+            for case in connection.execute(
+                """
+                SELECT DISTINCT application_num_hash
+                FROM ceac_cases
+                WHERE user_id = ? AND application_num_hash != ''
+                """,
+                (userId,),
+            ).fetchall()
+        ]
+        suspendedApplicationCount = 0
+        restoredApplicationCount = 0
+        otherApplicationCount = 0
+        if applicationHashes:
+            placeholders = ", ".join("?" for _ in applicationHashes)
+            relatedApplications = connection.execute(
+                f"""
+                SELECT DISTINCT u.id, u.account_status,
+                       EXISTS (
+                           SELECT 1 FROM account_appeals approved
+                           WHERE approved.user_id = u.id
+                             AND approved.status = 'approved'
+                       ) AS has_approved_appeal
+                FROM ceac_cases c
+                JOIN users u ON u.id = c.user_id
+                WHERE c.user_id != ?
+                  AND c.application_num_hash IN ({placeholders})
+                """,
+                (userId, *applicationHashes),
+            ).fetchall()
+            for related in relatedApplications:
+                if related["account_status"] == ACCOUNT_STATUS_SUSPENDED:
+                    suspendedApplicationCount += 1
+                elif related["account_status"] == ACCOUNT_STATUS_ACTIVE and bool(related["has_approved_appeal"]):
+                    restoredApplicationCount += 1
+                else:
+                    otherApplicationCount += 1
+
+        appeal["riskReasonCode"] = str(flag["reason_code"] or "") if flag else ""
+        appeal["riskEvidence"] = {
+            "sameRegistrationDeviceAccountCount": registrationDeviceCount,
+            "sameRegistrationIpAccountCount": registrationIpCount,
+            "reusedApplicationSuspendedAccountCount": suspendedApplicationCount,
+            "reusedApplicationRestoredAccountCount": restoredApplicationCount,
+            "reusedApplicationOtherAccountCount": otherApplicationCount,
+        }
         appeal["adminNote"] = _decrypt(row.get("admin_note_encrypted") or "")
     return appeal
 
