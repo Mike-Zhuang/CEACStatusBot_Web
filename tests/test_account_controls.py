@@ -25,6 +25,7 @@ from CEACStatusBot.web.mailer import (
     DailyEmailLimitExceeded,
     enforceDailyEmailLimit,
     recordEmailDelivery,
+    sendAccountAppealRejectionEmail,
     sendAccountRestrictionEmail,
     sendAccountReviewResolutionEmail,
     sendAdministratorAccountAlert,
@@ -562,6 +563,120 @@ def test_account_review_resolution_email_is_logged_without_consuming_normal_quot
             subject=f"审核说明 {index}",
         )
     enforceDailyEmailLimit(int(user["id"]))
+
+
+def test_account_appeal_rejection_email_contains_review_note_and_is_logged(createUser, monkeypatch) -> None:
+    user = createUser()
+    sent: list[tuple[str, str, str]] = []
+    reviewNote = "当前申诉暂不通过。请说明你与相关账号及签证申请人的关系后重新提交。"
+
+    def fakeSend(toEmail: str, subject: str, body: str, **_: object) -> bool:
+        sent.append((toEmail, subject, body))
+        return True
+
+    monkeypatch.setattr("CEACStatusBot.web.mailer.sendSystemEmail", fakeSend)
+    assert sendAccountAppealRejectionEmail(
+        userId=int(user["id"]),
+        recipient=str(user["email"]),
+        reviewNote=reviewNote,
+        reviewedAt=nowIso(),
+    )
+    assert len(sent) == 1
+    assert "暂未通过" in sent[0][1]
+    assert reviewNote in sent[0][2]
+    assert "重新提交申诉" in sent[0][2]
+    with getConnection() as connection:
+        row = connection.execute(
+            "SELECT email_type, subject, body_encrypted FROM email_delivery_logs WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+            (user["id"],),
+        ).fetchone()
+    assert row["email_type"] == "account_appeal_rejected"
+    assert "暂未通过" in (decryptIfNeeded(row["subject"]) or "")
+    assert reviewNote in (decryptIfNeeded(row["body_encrypted"]) or "")
+
+
+def test_admin_rejection_sends_email_after_appeal_is_committed(createUser, monkeypatch) -> None:
+    admin = createUser(email="admin@example.com", role="admin")
+    target = createUser(email="target@example.com")
+    with getConnection() as connection:
+        suspendUserAccount(connection, userId=int(target["id"]), reasonCode="test_restriction")
+        appeal = submitAccountAppeal(
+            connection,
+            userId=int(target["id"]),
+            message="这是用于验证驳回邮件发送时机的申诉说明。",
+        )
+    notices: list[dict] = []
+
+    def fakeNotice(**kwargs: object) -> bool:
+        with getConnection() as connection:
+            row = connection.execute(
+                "SELECT status FROM account_appeals WHERE id = ?",
+                (appeal["id"],),
+            ).fetchone()
+        assert row and row["status"] == "rejected"
+        notices.append(dict(kwargs))
+        return True
+
+    monkeypatch.setattr("CEACStatusBot.web.main.sendAccountAppealRejectionEmail", fakeNotice)
+    client = TestClient(app, base_url="http://localhost")
+    login = client.post(
+        "/api/auth/login",
+        headers={"Origin": "http://localhost"},
+        json={"email": admin["email"], "password": "correct-password"},
+    )
+    assert login.status_code == 200
+    reviewNote = "当前申诉暂不通过，请补充关联账号关系后重新提交。"
+    response = client.post(
+        f"/api/admin/appeals/{appeal['id']}/review",
+        headers={"Origin": "http://localhost"},
+        json={
+            "decision": "rejected",
+            "reviewNote": reviewNote,
+            "adminNote": "测试驳回。",
+            "removeFromEnforcedGroups": False,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["appeal"]["status"] == "rejected"
+    assert len(notices) == 1
+    assert notices[0]["recipient"] == str(target["email"])
+    assert notices[0]["reviewNote"] == reviewNote
+
+
+def test_rejection_remains_committed_when_decision_email_fails(createUser, monkeypatch) -> None:
+    admin = createUser(email="admin@example.com", role="admin")
+    target = createUser(email="target@example.com")
+    with getConnection() as connection:
+        suspendUserAccount(connection, userId=int(target["id"]), reasonCode="test_restriction")
+        appeal = submitAccountAppeal(
+            connection,
+            userId=int(target["id"]),
+            message="这是用于验证驳回邮件失败隔离的申诉说明。",
+        )
+
+    def failedNotice(**_: object) -> bool:
+        raise RuntimeError("smtp unavailable")
+
+    monkeypatch.setattr("CEACStatusBot.web.main.sendAccountAppealRejectionEmail", failedNotice)
+    client = TestClient(app, base_url="http://localhost")
+    login = client.post(
+        "/api/auth/login",
+        headers={"Origin": "http://localhost"},
+        json={"email": admin["email"], "password": "correct-password"},
+    )
+    assert login.status_code == 200
+    response = client.post(
+        f"/api/admin/appeals/{appeal['id']}/review",
+        headers={"Origin": "http://localhost"},
+        json={
+            "decision": "rejected",
+            "reviewNote": "当前申诉暂不通过，请补充说明后重新提交。",
+            "adminNote": "测试邮件失败。",
+            "removeFromEnforcedGroups": False,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["appeal"]["status"] == "rejected"
 
 
 def test_administrator_account_alert_sends_only_to_verified_administrators(createUser, monkeypatch) -> None:

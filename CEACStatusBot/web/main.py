@@ -73,6 +73,7 @@ from .korea_visa_service import (
 from .mailer import (
     getSystemSmtpConfigPublic,
     saveSystemSmtpConfig,
+    sendAccountAppealRejectionEmail,
     sendAccountRestrictionEmail,
     sendAdministratorAccountAlert,
     sendSystemEmail,
@@ -1508,8 +1509,19 @@ def adminReviewAccountAppeal(
     request: Request,
     admin: dict = Depends(adminDependency),
 ) -> dict:
+    targetUser: dict | None = None
     with getConnection() as connection:
         try:
+            targetRow = connection.execute(
+                """
+                SELECT u.id, u.email
+                FROM account_appeals a
+                JOIN users u ON u.id = a.user_id
+                WHERE a.id = ?
+                """,
+                (appealId,),
+            ).fetchone()
+            targetUser = dict(targetRow) if targetRow else None
             appeal = reviewAccountAppeal(
                 connection,
                 appealId=appealId,
@@ -1523,6 +1535,23 @@ def adminReviewAccountAppeal(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not appeal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="申诉不存在")
+    if payload.decision == "rejected" and targetUser:
+        try:
+            delivered = sendAccountAppealRejectionEmail(
+                userId=int(targetUser["id"]),
+                recipient=str(targetUser["email"]),
+                reviewNote=payload.reviewNote,
+                reviewedAt=str(appeal["reviewedAt"]),
+            )
+        except Exception as exc:
+            print(f"[mail] Account appeal rejection notification failed for user {targetUser['id']}: {type(exc).__name__}")
+            delivered = False
+        logSecurityEvent(
+            eventType="account_appeal_rejection_notice_sent" if delivered else "account_appeal_rejection_notice_failed",
+            userId=int(targetUser["id"]),
+            severity="info" if delivered else "warning",
+            detail={"appealId": appealId},
+        )
     logSecurityEvent(
         eventType="admin_account_appeal_reviewed",
         request=request,

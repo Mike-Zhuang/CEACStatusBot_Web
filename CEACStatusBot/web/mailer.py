@@ -413,6 +413,53 @@ def sendAccountReviewResolutionEmail(*, userId: int, recipient: str) -> bool:
     return delivered
 
 
+def sendAccountAppealRejectionEmail(
+    *,
+    userId: int,
+    recipient: str,
+    reviewNote: str,
+    reviewedAt: str,
+) -> bool:
+    """驳回结果属于必要账号通知，不受普通状态邮件额度影响。"""
+    subject = "[CEACStatusBot] 账号申诉处理结果：暂未通过"
+    formattedTime = formatEmailTime(reviewedAt, getUserEmailTimezone(userId))
+    visibleNote = reviewNote.strip() or "当前申诉提供的信息不足，暂不恢复账号访问。"
+    body = "\n".join(
+        [
+            "申诉处理结果：暂未通过",
+            "",
+            f"账号：{recipient}",
+            f"处理时间：{formattedTime}",
+            "",
+            "处理说明：",
+            visibleNote,
+            "",
+            "你可以根据处理说明补充情况后重新提交申诉。",
+            f"登录入口：{getSettings().appBaseUrl}",
+            "",
+            "请勿通过申诉或邮件发送密码、验证码、完整护照号、UID/HAL 或 IRCC Portal 凭据。",
+        ],
+    )
+    try:
+        delivered = sendSystemEmail(recipient, subject, body, htmlBody=buildEmailHtml(body))
+    except Exception as exc:
+        print(f"[mail] Account appeal rejection notice failed for user {userId}: {type(exc).__name__}")
+        return False
+    if delivered:
+        try:
+            recordEmailDelivery(
+                userId=userId,
+                caseId=None,
+                emailType="account_appeal_rejected",
+                recipient=recipient,
+                subject=subject,
+                body=body,
+            )
+        except Exception as exc:
+            print(f"[mail] Account appeal rejection audit failed for user {userId}: {type(exc).__name__}")
+    return delivered
+
+
 def getAdministratorNotificationRecipients() -> list[dict[str, Any]]:
     """优先向已验证的管理员账号发告警；仅在没有管理员账号时回退部署配置。"""
     recipients: list[dict[str, Any]] = []
@@ -555,7 +602,7 @@ def enforceDailyEmailLimit(userId: int | None, connection: Any | None = None) ->
             SELECT COUNT(*) AS email_count
             FROM email_delivery_logs
             WHERE user_id IN ({placeholders})
-              AND email_type NOT IN ('account_restriction', 'account_review_resolution')
+              AND email_type NOT IN ('account_restriction', 'account_review_resolution', 'account_appeal_rejected')
               AND created_at >= ?
               AND created_at < ?
             """,
