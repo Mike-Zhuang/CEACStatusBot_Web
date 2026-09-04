@@ -25,11 +25,13 @@ from .account_controls import (
     suspendUserAccount,
 )
 from .case_service import (
+    CeacProviderUnavailableError,
     RestrictedApplicationReuseError,
     createCase,
     deleteCase,
     enqueueCaseQuery,
     enqueueDueCases,
+    ensureCeacProviderManualQueryAvailable,
     getCase,
     getQueryJob,
     listCases,
@@ -1059,8 +1061,12 @@ def apiHistory(caseId: int, user: dict = Depends(currentUserDependency)) -> dict
 
 @app.post("/api/cases/{caseId}/test-query")
 def apiTestQuery(caseId: int, user: dict = Depends(currentUserDependency)) -> dict:
-    enforceDailyManualQueryLimit(user)
-    job = enqueueCaseQuery(caseId, "manual", int(user["id"]))
+    try:
+        ensureCeacProviderManualQueryAvailable()
+        enforceDailyManualQueryLimit(user)
+        job = enqueueCaseQuery(caseId, "manual", int(user["id"]))
+    except CeacProviderUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="签证档案不存在")
     return {"jobId": job["id"], "status": job["status"]}

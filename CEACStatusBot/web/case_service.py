@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from CEACStatusBot.request import query_status
+from CEACStatusBot.request.query import CEAC_PROVIDER_BLOCKED_ERROR_CODE
 
 from .account_controls import (
     RISK_GROUP_STATE_REVIEW,
@@ -16,7 +17,12 @@ from .account_controls import (
 )
 from .config import getSettings
 from .database import getConnection, utcNowIso
-from .mailer import sendCaseNotification, sendCeacConsecutiveFailureNotification, sendIssuedAutoStopNotification
+from .mailer import (
+    sendCaseNotification,
+    sendCeacConsecutiveFailureNotification,
+    sendCeacProviderIncidentNotification,
+    sendIssuedAutoStopNotification,
+)
 from .passport_slot_service import (
     isPassportSlotTrigger,
     runPassportSlotQuery,
@@ -39,6 +45,8 @@ PREMIUM_WORKER_PRIORITY = 50
 CEAC_FAILURE_NOTICE_THRESHOLD = 5
 CEAC_FAILURE_STOP_THRESHOLD = 10
 CEAC_FAILURE_SLOW_STOP_DAYS = 7
+CEAC_PROVIDER_PROBE_MINUTES = 120
+CEAC_PROVIDER_PROBE_MAX_MINUTES = 240
 RESTRICTED_APPLICATION_REUSE_REASON = "reused_restricted_ceac_application"
 QUERY_TIMEOUT_ERROR_MESSAGE = (
     "查询运行超过系统设定时间仍未完成，已标记为失败。可能是信息填写有误、CEAC/GTS 服务暂时异常或服务器繁忙；"
@@ -51,6 +59,10 @@ class RestrictedApplicationReuseError(ValueError):
         super().__init__("该签证申请与已受限账号重复，当前账号已进入人工审核。")
         self.restrictedAt = restrictedAt
         self.reasonCode = RESTRICTED_APPLICATION_REUSE_REASON
+
+
+class CeacProviderUnavailableError(ValueError):
+    pass
 
 
 def isIssuedStatus(status: str | None) -> bool:
@@ -71,10 +83,139 @@ def computeNextDailyCheckAt(base: datetime | None = None) -> str:
     return nextDay.replace(hour=random.randint(0, 23), minute=random.randint(0, 59)).isoformat()
 
 
+def computeCeacProviderProbeAt(base: datetime | None = None) -> str:
+    base = base or datetime.now(UTC)
+    return (base + timedelta(minutes=random.randint(CEAC_PROVIDER_PROBE_MINUTES, CEAC_PROVIDER_PROBE_MAX_MINUTES))).replace(
+        microsecond=0,
+    ).isoformat()
+
+
+def getCeacProviderIncident(connection: Any) -> dict[str, Any] | None:
+    row = connection.execute("SELECT * FROM ceac_provider_incident WHERE id = 1").fetchone()
+    return dict(row) if row else None
+
+
+def isCeacProviderIncidentActive(connection: Any) -> bool:
+    incident = getCeacProviderIncident(connection)
+    return bool(incident and incident["is_active"])
+
+
+def ensureCeacProviderManualQueryAvailable() -> None:
+    with getConnection() as connection:
+        if isCeacProviderIncidentActive(connection):
+            raise CeacProviderUnavailableError(
+                "CEAC 自动查询通道当前被官网安全防护拦截，请暂时前往 CEAC 官网手动查询。",
+            )
+
+
+def markCeacProviderBlocked(connection: Any, detectedAt: datetime) -> dict[str, Any]:
+    detectedIso = detectedAt.replace(microsecond=0).isoformat()
+    nextProbeAt = computeCeacProviderProbeAt(detectedAt)
+    current = getCeacProviderIncident(connection)
+    isNewIncident = not current or not bool(current["is_active"])
+    if isNewIncident:
+        connection.execute(
+            """
+            INSERT INTO ceac_provider_incident (
+                id, is_active, started_at, last_seen_at, next_probe_at,
+                alert_sent_at, recovered_at, recovery_alert_sent_at, updated_at
+            )
+            VALUES (1, 1, ?, ?, ?, NULL, NULL, NULL, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                is_active = 1,
+                started_at = excluded.started_at,
+                last_seen_at = excluded.last_seen_at,
+                next_probe_at = excluded.next_probe_at,
+                alert_sent_at = NULL,
+                recovered_at = NULL,
+                recovery_alert_sent_at = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (detectedIso, detectedIso, nextProbeAt, detectedIso),
+        )
+        notifyAdministrator = True
+    else:
+        connection.execute(
+            """
+            UPDATE ceac_provider_incident
+            SET last_seen_at = ?, next_probe_at = ?, updated_at = ?
+            WHERE id = 1
+            """,
+            (detectedIso, nextProbeAt, detectedIso),
+        )
+        notifyAdministrator = not bool(current.get("alert_sent_at"))
+    stoppedMessage = "CEAC 查询通道当前被官网安全防护拦截，排队任务已暂停。"
+    connection.execute(
+        """
+        UPDATE query_jobs
+        SET status = 'failed',
+            error_message = ?,
+            result_json = ?,
+            finished_at = ?,
+            updated_at = ?
+        WHERE status = 'queued'
+          AND trigger_type NOT LIKE 'passport_slot_%'
+        """,
+        (
+            stoppedMessage,
+            encryptSecret(json.dumps({"success": False, "changed": False, "error": stoppedMessage}, ensure_ascii=False)),
+            detectedIso,
+            detectedIso,
+        ),
+    )
+    return {
+        "isNewIncident": isNewIncident,
+        "notifyAdministrator": notifyAdministrator,
+        "detectedAt": detectedIso,
+        "nextProbeAt": nextProbeAt,
+    }
+
+
+def resolveCeacProviderIncident(connection: Any, recoveredAt: datetime) -> dict[str, Any] | None:
+    current = getCeacProviderIncident(connection)
+    if not current or not bool(current["is_active"]):
+        return None
+    recoveredIso = recoveredAt.replace(microsecond=0).isoformat()
+    connection.execute(
+        """
+        UPDATE ceac_provider_incident
+        SET is_active = 0, next_probe_at = NULL, recovered_at = ?, updated_at = ?
+        WHERE id = 1
+        """,
+        (recoveredIso, recoveredIso),
+    )
+    return {
+        "notifyAdministrator": bool(current.get("alert_sent_at")) and not bool(current.get("recovery_alert_sent_at")),
+        "recoveredAt": recoveredIso,
+    }
+
+
+def markCeacProviderIncidentNoticeSent(*, recovered: bool, sentAt: str) -> None:
+    column = "recovery_alert_sent_at" if recovered else "alert_sent_at"
+    with getConnection() as connection:
+        connection.execute(
+            f"UPDATE ceac_provider_incident SET {column} = ?, updated_at = ? WHERE id = 1",
+            (sentAt, sentAt),
+        )
+
+
+def notifyCeacProviderIncident(*, recovered: bool, occurredAt: str, nextProbeAt: str | None = None) -> None:
+    try:
+        notification = sendCeacProviderIncidentNotification(
+            recovered=recovered,
+            occurredAt=occurredAt,
+            nextProbeAt=nextProbeAt,
+        )
+        if notification["delivered"]:
+            markCeacProviderIncidentNoticeSent(recovered=recovered, sentAt=utcNowIso())
+    except Exception as exc:
+        print(f"[ceac] Provider incident notification failed: {type(exc).__name__}")
+
+
 def countRecentCeacFailureRuns(connection: Any, caseId: int) -> int:
     rows = connection.execute(
         """
-        SELECT success
+        SELECT success, error_code
         FROM query_runs
         WHERE case_id = ?
           AND trigger_type IN ('manual', 'automatic')
@@ -87,6 +228,8 @@ def countRecentCeacFailureRuns(connection: Any, caseId: int) -> int:
     for row in rows:
         if int(row["success"]):
             break
+        if row.get("error_code") == CEAC_PROVIDER_BLOCKED_ERROR_CODE:
+            continue
         count += 1
     return count
 
@@ -599,7 +742,10 @@ def runCaseQuery(caseId: int, triggerType: str = "automatic") -> dict[str, Any]:
     errorMessage = ""
     statusId: int | None = None
     success = False
+    failureCode = ""
     result: dict[str, Any] = {"success": False}
+    incidentNotice: dict[str, Any] | None = None
+    recoveryNotice: dict[str, Any] | None = None
     with getConnection() as connection:
         case = connection.execute(
             """
@@ -619,6 +765,7 @@ def runCaseQuery(caseId: int, triggerType: str = "automatic") -> dict[str, Any]:
 
     try:
         result = query_status(case["location"], case["application_num"], case["passport_number"], case["surname"])
+        failureCode = str(result.get("error_code") or "")
         if not result.get("success"):
             raise RuntimeError(str(result.get("error") or "CEAC 查询失败"))
         success = True
@@ -628,12 +775,15 @@ def runCaseQuery(caseId: int, triggerType: str = "automatic") -> dict[str, Any]:
     finished = datetime.now(UTC)
     durationMs = int((finished - started).total_seconds() * 1000)
     finishedIso = finished.replace(microsecond=0).isoformat()
+    providerAvailable = success or bool(result.get("provider_available"))
 
     with getConnection() as connection:
         # 外部 CEAC 请求可能跨越管理员限制操作；落库前必须再次确认，不能让在途任务恢复监控。
         if not isUserAccountActive(int(case["user_id"]), connection):
             return {"success": False, "changed": False, "error": "账号当前不可用，查询结果已丢弃。"}
         hasChanged = False
+        if providerAvailable:
+            recoveryNotice = resolveCeacProviderIncident(connection, finished)
         if success:
             statusId = getOrCreateStatus(connection, str(result["status"]), str(result.get("description", "")))
             lastHistory = connection.execute(
@@ -690,6 +840,25 @@ def runCaseQuery(caseId: int, triggerType: str = "automatic") -> dict[str, Any]:
                 WHERE id = ?
                 """,
                 (finishedIso, computeNextCheckAt(finished, str(result.get("status", ""))), statusId, triggerType, finishedIso, caseId),
+            )
+        elif failureCode == CEAC_PROVIDER_BLOCKED_ERROR_CODE:
+            incidentNotice = markCeacProviderBlocked(connection, finished)
+            connection.execute(
+                """
+                UPDATE ceac_cases
+                SET last_checked_at = ?,
+                    next_check_at = ?,
+                    last_trigger_type = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    finishedIso,
+                    incidentNotice["nextProbeAt"],
+                    triggerType,
+                    finishedIso,
+                    caseId,
+                ),
             )
         else:
             previousErrorCount = int(case.get("ceac_consecutive_error_count") or 0)
@@ -758,10 +927,24 @@ def runCaseQuery(caseId: int, triggerType: str = "automatic") -> dict[str, Any]:
                     errorMessage = f"{errorMessage}; Notification failed: {exc}" if errorMessage else f"Notification failed: {exc}"
         connection.execute(
             """
-            INSERT INTO query_runs (case_id, started_at, finished_at, success, status_id, error_message, duration_ms, trigger_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO query_runs (
+                case_id, started_at, finished_at, success, status_id,
+                error_message, error_code, duration_ms, trigger_type
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (caseId, startedIso, finishedIso, int(success), statusId, errorMessage, durationMs, triggerType),
+            (caseId, startedIso, finishedIso, int(success), statusId, errorMessage, failureCode, durationMs, triggerType),
+        )
+    if incidentNotice and incidentNotice["notifyAdministrator"]:
+        notifyCeacProviderIncident(
+            recovered=False,
+            occurredAt=incidentNotice["detectedAt"],
+            nextProbeAt=incidentNotice["nextProbeAt"],
+        )
+    if recoveryNotice and recoveryNotice["notifyAdministrator"]:
+        notifyCeacProviderIncident(
+            recovered=True,
+            occurredAt=recoveryNotice["recoveredAt"],
         )
     return {"success": success, "changed": success and hasChanged, "error": errorMessage, "result": result}
 
@@ -974,7 +1157,13 @@ def normalizeQueryJob(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def enqueueCaseQuery(caseId: int, triggerType: str, userId: int | None = None) -> dict[str, Any] | None:
+def enqueueCaseQuery(
+    caseId: int,
+    triggerType: str,
+    userId: int | None = None,
+    *,
+    allowProviderProbe: bool = False,
+) -> dict[str, Any] | None:
     now = utcNowIso()
     params: tuple[Any, ...] = (caseId,)
     userFilter = ""
@@ -993,6 +1182,12 @@ def enqueueCaseQuery(caseId: int, triggerType: str, userId: int | None = None) -
             params,
         ).fetchone()
         if not case:
+            return None
+        if isCeacProviderIncidentActive(connection) and not allowProviderProbe:
+            if triggerType == "manual":
+                raise CeacProviderUnavailableError(
+                    "CEAC 自动查询通道当前被官网安全防护拦截，请暂时前往 CEAC 官网手动查询。",
+                )
             return None
         existing = connection.execute(
             """
@@ -1022,7 +1217,15 @@ def enqueueDueCases(limit: int = 20) -> list[dict[str, Any]]:
     now = datetime.now(UTC).replace(microsecond=0)
     nowIso = now.isoformat()
     queued: list[dict[str, Any]] = []
+    providerProbe = False
     with getConnection() as connection:
+        incident = getCeacProviderIncident(connection)
+        if incident and bool(incident["is_active"]):
+            nextProbeAt = str(incident.get("next_probe_at") or "")
+            if nextProbeAt and parseIso(nextProbeAt) > now:
+                return []
+            providerProbe = True
+            limit = 1
         rows = connection.execute(
             """
             SELECT c.*, s.status AS last_status
@@ -1047,9 +1250,25 @@ def enqueueDueCases(limit: int = 20) -> list[dict[str, Any]]:
     for row in rows:
         if isIssuedStatus(row.get("last_status")) and handleIssuedDueCase(int(row["id"]), now):
             continue
-        job = enqueueCaseQuery(int(row["id"]), "automatic")
+        job = enqueueCaseQuery(
+            int(row["id"]),
+            "automatic",
+            allowProviderProbe=providerProbe,
+        )
         if job:
             queued.append(job)
+            if providerProbe:
+                probeLeaseAt = computeCeacProviderProbeAt(now)
+                with getConnection() as connection:
+                    connection.execute(
+                        """
+                        UPDATE ceac_provider_incident
+                        SET next_probe_at = ?, updated_at = ?
+                        WHERE id = 1 AND is_active = 1
+                        """,
+                        (probeLeaseAt, nowIso),
+                    )
+                break
     return queued
 
 

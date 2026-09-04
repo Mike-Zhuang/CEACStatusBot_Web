@@ -139,6 +139,18 @@ def initializeDatabase() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS ceac_provider_incident (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                is_active INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT,
+                last_seen_at TEXT,
+                next_probe_at TEXT,
+                alert_sent_at TEXT,
+                recovered_at TEXT,
+                recovery_alert_sent_at TEXT,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS ceac_cases (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -198,6 +210,7 @@ def initializeDatabase() -> None:
                 success INTEGER NOT NULL,
                 status_id INTEGER,
                 error_message TEXT NOT NULL DEFAULT '',
+                error_code TEXT NOT NULL DEFAULT '',
                 duration_ms INTEGER NOT NULL DEFAULT 0,
                 trigger_type TEXT NOT NULL DEFAULT 'unknown',
                 FOREIGN KEY (case_id) REFERENCES ceac_cases(id) ON DELETE CASCADE,
@@ -625,6 +638,22 @@ def initializeDatabase() -> None:
             )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_ceac_cases_application_num_hash ON ceac_cases(application_num_hash)",
+        )
+        queryRunColumns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(query_runs)").fetchall()
+        }
+        if "error_code" not in queryRunColumns:
+            connection.execute(
+                "ALTER TABLE query_runs ADD COLUMN error_code TEXT NOT NULL DEFAULT ''",
+            )
+        connection.execute(
+            """
+            UPDATE query_runs
+            SET error_code = 'ceac_cloudflare_blocked'
+            WHERE error_code = ''
+              AND error_message LIKE '%CEAC 页面未返回验证码图片%'
+            """,
         )
         irccColumns = {
             row["name"]

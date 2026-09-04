@@ -9,6 +9,7 @@ from CEACStatusBot.captcha import CaptchaHandle, OnnxCaptchaHandle
 ROOT = "https://ceac.state.gov"
 REQUEST_TIMEOUT = (10, 45)
 MAX_ATTEMPTS = 5
+CEAC_PROVIDER_BLOCKED_ERROR_CODE = "ceac_cloudflare_blocked"
 
 
 def build_ceac_url(path: str) -> str:
@@ -19,13 +20,14 @@ def build_ceac_url(path: str) -> str:
     return url
 
 
-def build_failure(error_code, error, attempts, *, detail=""):
+def build_failure(error_code, error, attempts, *, detail="", provider_available=False):
     return {
         "success": False,
         "error_code": error_code,
         "error": error,
         "attempts": attempts,
         "detail": detail,
+        "provider_available": provider_available,
     }
 
 
@@ -55,6 +57,19 @@ def extract_page_error(soup):
     return ""
 
 
+def is_cloudflare_blocked(response):
+    if response.status_code != 403:
+        return False
+    server = str(response.headers.get("server", "")).lower()
+    body = str(response.text or "").lower()
+    return (
+        "cloudflare" in server
+        or "cf-ray" in {str(key).lower() for key in response.headers}
+        or "sorry, you have been blocked" in body
+        or "attention required! | cloudflare" in body
+    )
+
+
 def read_span_text(soup, span_id):
     node = soup.find("span", id=span_id)
     return node.get_text(strip=True) if node else ""
@@ -66,6 +81,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
         "success": False,
     }
     lastFailure = build_failure("unknown", "CEAC 查询失败，请稍后重试。", 0)
+    providerAvailable = False
     backupTime = 5
 
     while failCount < MAX_ATTEMPTS:
@@ -101,6 +117,14 @@ def query_status(location, application_num, passport_number, surname, captchaHan
             )
             continue
 
+        if is_cloudflare_blocked(r):
+            return build_failure(
+                CEAC_PROVIDER_BLOCKED_ERROR_CODE,
+                "CEAC 当前阻止服务器自动访问，系统已暂停继续重试。这不代表档案信息填写错误。",
+                failCount,
+                detail="HTTP 403 Cloudflare block",
+            )
+
         soup = BeautifulSoup(r.text, features="lxml")
 
         # Find captcha image
@@ -113,6 +137,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
             )
             continue
         image_url = build_ceac_url(captcha["src"])
+        providerAvailable = True
         try:
             img_resp = session.get(image_url, timeout=REQUEST_TIMEOUT)
         except Exception as e:
@@ -122,8 +147,16 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "CEAC 验证码图片请求失败，可能是官网临时不可用或网络波动。",
                 failCount,
                 detail=str(e),
+                provider_available=providerAvailable,
             )
             continue
+        if is_cloudflare_blocked(img_resp):
+            return build_failure(
+                CEAC_PROVIDER_BLOCKED_ERROR_CODE,
+                "CEAC 当前阻止服务器自动访问，系统已暂停继续重试。这不代表档案信息填写错误。",
+                failCount,
+                detail="HTTP 403 Cloudflare block",
+            )
 
         # Resolve captcha
         try:
@@ -135,6 +168,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "CEAC 验证码识别失败，可能是验证码图片异常或识别模型无法处理当前验证码。",
                 failCount,
                 detail=str(e),
+                provider_available=providerAvailable,
             )
             continue
         print(f"Captcha solved: {captcha_num}")
@@ -146,6 +180,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "ceac_location_dropdown_missing",
                 "CEAC 页面未返回办理地点下拉框，可能是官网页面结构变化或临时异常。",
                 failCount,
+                provider_available=providerAvailable,
             )
             continue
         location_value = None
@@ -160,6 +195,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "ceac_location_not_found",
                 "CEAC 办理地点匹配失败，请确认档案中选择的办理地点是否仍在 CEAC 官网列表中。",
                 failCount,
+                provider_available=providerAvailable,
             )
 
         # Fill form
@@ -210,8 +246,17 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "CEAC 表单提交失败，可能是 CEAC 官网临时不可用、网络波动或服务器出口连接异常。",
                 failCount,
                 detail=str(e),
+                provider_available=providerAvailable,
             )
             continue
+
+        if is_cloudflare_blocked(r):
+            return build_failure(
+                CEAC_PROVIDER_BLOCKED_ERROR_CODE,
+                "CEAC 当前阻止服务器自动访问，系统已暂停继续重试。这不代表档案信息填写错误。",
+                failCount,
+                detail="HTTP 403 Cloudflare block",
+            )
 
         soup = BeautifulSoup(r.text, features="lxml")
         status_tag = soup.find("span", id="ctl00_ContentPlaceHolder1_ucApplicationStatusView_lblStatus")
@@ -221,6 +266,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "ceac_status_not_returned",
                 pageError or "CEAC 未返回状态结果，可能是验证码识别失败、申请信息不匹配、官网临时异常或页面结构变化。",
                 failCount,
+                provider_available=providerAvailable,
             )
             continue
 
@@ -230,6 +276,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "ceac_application_number_mismatch",
                 "CEAC 返回的申请号与档案申请号不一致，请核对 Application ID 或 Case Number。",
                 failCount,
+                provider_available=providerAvailable,
             )
         status = status_tag.get_text(strip=True)
         visa_type = read_span_text(soup, "ctl00_ContentPlaceHolder1_ucApplicationStatusView_lblAppName")
@@ -241,6 +288,7 @@ def query_status(location, application_num, passport_number, surname, captchaHan
                 "ceac_status_empty",
                 "CEAC 返回了状态区域，但状态字段为空，可能是官网页面结构变化或临时异常。",
                 failCount,
+                provider_available=providerAvailable,
             )
             continue
 

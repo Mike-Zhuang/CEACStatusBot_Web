@@ -583,6 +583,75 @@ def sendAdministratorAccountAlert(
     return result
 
 
+def sendCeacProviderIncidentNotification(
+    *,
+    recovered: bool,
+    occurredAt: str,
+    nextProbeAt: str | None = None,
+) -> dict[str, int]:
+    """向管理员发送一次 CEAC 通道故障或恢复通知，不包含用户档案信息。"""
+    subject = "[CEACStatusBot 管理员告警] CEAC 查询通道已恢复" if recovered else "[CEACStatusBot 管理员告警] CEAC 查询通道被 Cloudflare 拦截"
+    emailType = "admin_ceac_provider_recovered" if recovered else "admin_ceac_provider_incident"
+    recipients = getAdministratorNotificationRecipients()
+    result = {"attempted": len(recipients), "delivered": 0, "failed": 0}
+    for recipient in recipients:
+        timezoneName = str(recipient["timezone"])
+        lines = [
+            "CEAC 查询通道状态：",
+            "已恢复" if recovered else "Cloudflare 拦截中",
+            "",
+            f"检测时间：{formatEmailTime(occurredAt, timezoneName)}",
+        ]
+        if recovered:
+            lines.extend(
+                [
+                    "",
+                    "CEAC 页面已重新返回正常查询表单，系统已解除全局熔断。",
+                    "后续自动任务会按原有随机调度逐步恢复。",
+                ],
+            )
+        else:
+            if nextProbeAt:
+                lines.append(f"下次低频探测：{formatEmailTime(nextProbeAt, timezoneName)}")
+            lines.extend(
+                [
+                    "",
+                    "CEAC 返回 HTTP 403 Cloudflare 拦截页，未返回验证码和查询表单。",
+                    "系统已停止本轮重试，并进入全局熔断；该错误不会累计到用户档案，也不会发送资料错误邮件。",
+                ],
+            )
+        lines.extend(["", f"管理员入口：{getSettings().appBaseUrl}"])
+        body = "\n".join(lines)
+        try:
+            delivered = sendSystemEmail(
+                str(recipient["email"]),
+                subject,
+                body,
+                htmlBody=buildEmailHtml(body),
+            )
+        except Exception as exc:
+            print(f"[mail] CEAC provider incident notice failed: {type(exc).__name__}")
+            result["failed"] += 1
+            continue
+        if not delivered:
+            result["failed"] += 1
+            continue
+        result["delivered"] += 1
+        if recipient["userId"] is not None:
+            try:
+                recordEmailDelivery(
+                    userId=int(recipient["userId"]),
+                    caseId=None,
+                    emailType=emailType,
+                    recipient=str(recipient["email"]),
+                    subject=subject,
+                    body=body,
+                )
+            except Exception as exc:
+                print(f"[mail] CEAC provider incident audit failed: {type(exc).__name__}")
+    return result
+
+
 def enforceDailyEmailLimit(userId: int | None, connection: Any | None = None) -> None:
     if userId is None:
         return
