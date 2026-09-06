@@ -1,0 +1,565 @@
+{
+  "updatedAt": "2026-09-06T07:06:54+00:00",
+  "days": [
+    {
+      "date": "2026-05-17",
+      "clones": 231,
+      "uniqueCloners": 83
+    },
+    {
+      "date": "2026-05-18",
+      "clones": 303,
+      "uniqueCloners": 102
+    },
+    {
+      "date": "2026-05-19",
+      "clones": 168,
+      "uniqueCloners": 52
+    },
+    {
+      "date": "2026-05-20",
+      "clones": 164,
+      "uniqueCloners": 59
+    },
+    {
+      "date": "2026-05-21",
+      "clones": 160,
+      "uniqueCloners": 42
+    },
+    {
+      "date": "2026-05-22",
+      "clones": 174,
+      "uniqueCloners": 70
+    },
+    {
+      "date": "2026-05-23",
+      "clones": 173,
+      "uniqueCloners": 55
+    },
+    {
+      "date": "2026-05-24",
+      "clones": 158,
+      "uniqueCloners": 39
+    },
+    {
+      "date": "2026-05-25",
+      "clones": 172,
+      "uniqueCloners": 42
+    },
+    {
+      "date": "2026-05-26",
+      "clones": 200,
+      "uniqueCloners": 58
+    },
+    {
+      "date": "2026-05-27",
+      "clones": 156,
+      "uniqueCloners": 39
+    },
+    {
+      "date": "2026-05-28",
+      "clones": 164,
+      "uniqueCloners": 45
+    },
+    {
+      "date": "2026-05-29",
+      "clones": 175,
+      "uniqueCloners": 45
+    },
+    {
+      "date": "2026-05-30",
+      "clones": 235,
+      "uniqueCloners": 68
+    },
+    {
+      "date": "2026-05-31",
+      "clones": 341,
+      "uniqueCloners": 100
+    },
+    {
+      "date": "2026-06-01",
+      "clones": 171,
+      "uniqueCloners": 46
+    },
+    {
+      "date": "2026-06-02",
+      "clones": 169,
+      "uniqueCloners": 48
+    },
+    {
+      "date": "2026-06-03",
+      "clones": 160,
+      "uniqueCloners": 43
+    },
+    {
+      "date": "2026-06-04",
+      "clones": 160,
+      "uniqueCloners": 44
+    },
+    {
+      "date": "2026-06-05",
+      "clones": 223,
+      "uniqueCloners": 60
+    },
+    {
+      "date": "2026-06-06",
+      "clones": 256,
+      "uniqueCloners": 61
+    },
+    {
+      "date": "2026-06-07",
+      "clones": 212,
+      "uniqueCloners": 57
+    },
+    {
+      "date": "2026-06-08",
+      "clones": 150,
+      "uniqueCloners": 38
+    },
+    {
+      "date": "2026-06-09",
+      "clones": 174,
+      "uniqueCloners": 96
+    },
+    {
+      "date": "2026-06-10",
+      "clones": 383,
+      "uniqueCloners": 75
+    },
+    {
+      "date": "2026-06-11",
+      "clones": 150,
+      "uniqueCloners": 53
+    },
+    {
+      "date": "2026-06-12",
+      "clones": 174,
+      "uniqueCloners": 65
+    },
+    {
+      "date": "2026-06-13",
+      "clones": 185,
+      "uniqueCloners": 66
+    },
+    {
+      "date": "2026-06-14",
+      "clones": 274,
+      "uniqueCloners": 84
+    },
+    {
+      "date": "2026-06-15",
+      "clones": 162,
+      "uniqueCloners": 56
+    },
+    {
+      "date": "2026-06-16",
+      "clones": 192,
+      "uniqueCloners": 60
+    },
+    {
+      "date": "2026-06-17",
+      "clones": 192,
+      "uniqueCloners": 60
+    },
+    {
+      "date": "2026-06-18",
+      "clones": 175,
+      "uniqueCloners": 56
+    },
+    {
+      "date": "2026-06-19",
+      "clones": 183,
+      "uniqueCloners": 61
+    },
+    {
+      "date": "2026-06-20",
+      "clones": 189,
+      "uniqueCloners": 50
+    },
+    {
+      "date": "2026-06-21",
+      "clones": 233,
+      "uniqueCloners": 62
+    },
+    {
+      "date": "2026-06-22",
+      "clones": 239,
+      "uniqueCloners": 56
+    },
+    {
+      "date": "2026-06-23",
+      "clones": 252,
+      "uniqueCloners": 66
+    },
+    {
+      "date": "2026-06-24",
+      "clones": 146,
+      "uniqueCloners": 35
+    },
+    {
+      "date": "2026-06-25",
+      "clones": 166,
+      "uniqueCloners": 45
+    },
+    {
+      "date": "2026-06-26",
+      "clones": 163,
+      "uniqueCloners": 46
+    },
+    {
+      "date": "2026-06-27",
+      "clones": 163,
+      "uniqueCloners": 44
+    },
+    {
+      "date": "2026-06-28",
+      "clones": 225,
+      "uniqueCloners": 57
+    },
+    {
+      "date": "2026-06-29",
+      "clones": 161,
+      "uniqueCloners": 44
+    },
+    {
+      "date": "2026-06-30",
+      "clones": 189,
+      "uniqueCloners": 46
+    },
+    {
+      "date": "2026-07-01",
+      "clones": 160,
+      "uniqueCloners": 43
+    },
+    {
+      "date": "2026-07-02",
+      "clones": 178,
+      "uniqueCloners": 51
+    },
+    {
+      "date": "2026-07-03",
+      "clones": 158,
+      "uniqueCloners": 39
+    },
+    {
+      "date": "2026-07-04",
+      "clones": 160,
+      "uniqueCloners": 41
+    },
+    {
+      "date": "2026-07-05",
+      "clones": 204,
+      "uniqueCloners": 46
+    },
+    {
+      "date": "2026-07-06",
+      "clones": 165,
+      "uniqueCloners": 48
+    },
+    {
+      "date": "2026-07-07",
+      "clones": 172,
+      "uniqueCloners": 76
+    },
+    {
+      "date": "2026-07-08",
+      "clones": 155,
+      "uniqueCloners": 77
+    },
+    {
+      "date": "2026-07-09",
+      "clones": 157,
+      "uniqueCloners": 77
+    },
+    {
+      "date": "2026-07-10",
+      "clones": 146,
+      "uniqueCloners": 73
+    },
+    {
+      "date": "2026-07-11",
+      "clones": 158,
+      "uniqueCloners": 72
+    },
+    {
+      "date": "2026-07-12",
+      "clones": 178,
+      "uniqueCloners": 63
+    },
+    {
+      "date": "2026-07-13",
+      "clones": 145,
+      "uniqueCloners": 43
+    },
+    {
+      "date": "2026-07-14",
+      "clones": 159,
+      "uniqueCloners": 47
+    },
+    {
+      "date": "2026-07-15",
+      "clones": 172,
+      "uniqueCloners": 48
+    },
+    {
+      "date": "2026-07-16",
+      "clones": 149,
+      "uniqueCloners": 42
+    },
+    {
+      "date": "2026-07-17",
+      "clones": 145,
+      "uniqueCloners": 38
+    },
+    {
+      "date": "2026-07-18",
+      "clones": 154,
+      "uniqueCloners": 42
+    },
+    {
+      "date": "2026-07-19",
+      "clones": 168,
+      "uniqueCloners": 45
+    },
+    {
+      "date": "2026-07-20",
+      "clones": 147,
+      "uniqueCloners": 34
+    },
+    {
+      "date": "2026-07-21",
+      "clones": 157,
+      "uniqueCloners": 42
+    },
+    {
+      "date": "2026-07-22",
+      "clones": 147,
+      "uniqueCloners": 36
+    },
+    {
+      "date": "2026-07-23",
+      "clones": 162,
+      "uniqueCloners": 41
+    },
+    {
+      "date": "2026-07-24",
+      "clones": 147,
+      "uniqueCloners": 39
+    },
+    {
+      "date": "2026-07-25",
+      "clones": 149,
+      "uniqueCloners": 39
+    },
+    {
+      "date": "2026-07-26",
+      "clones": 175,
+      "uniqueCloners": 38
+    },
+    {
+      "date": "2026-07-27",
+      "clones": 146,
+      "uniqueCloners": 37
+    },
+    {
+      "date": "2026-07-28",
+      "clones": 175,
+      "uniqueCloners": 44
+    },
+    {
+      "date": "2026-07-29",
+      "clones": 152,
+      "uniqueCloners": 43
+    },
+    {
+      "date": "2026-07-30",
+      "clones": 149,
+      "uniqueCloners": 40
+    },
+    {
+      "date": "2026-07-31",
+      "clones": 145,
+      "uniqueCloners": 30
+    },
+    {
+      "date": "2026-08-01",
+      "clones": 148,
+      "uniqueCloners": 35
+    },
+    {
+      "date": "2026-08-02",
+      "clones": 179,
+      "uniqueCloners": 32
+    },
+    {
+      "date": "2026-08-03",
+      "clones": 168,
+      "uniqueCloners": 44
+    },
+    {
+      "date": "2026-08-04",
+      "clones": 146,
+      "uniqueCloners": 39
+    },
+    {
+      "date": "2026-08-05",
+      "clones": 148,
+      "uniqueCloners": 45
+    },
+    {
+      "date": "2026-08-06",
+      "clones": 146,
+      "uniqueCloners": 48
+    },
+    {
+      "date": "2026-08-07",
+      "clones": 147,
+      "uniqueCloners": 47
+    },
+    {
+      "date": "2026-08-08",
+      "clones": 146,
+      "uniqueCloners": 44
+    },
+    {
+      "date": "2026-08-09",
+      "clones": 175,
+      "uniqueCloners": 38
+    },
+    {
+      "date": "2026-08-10",
+      "clones": 145,
+      "uniqueCloners": 34
+    },
+    {
+      "date": "2026-08-11",
+      "clones": 163,
+      "uniqueCloners": 47
+    },
+    {
+      "date": "2026-08-12",
+      "clones": 141,
+      "uniqueCloners": 32
+    },
+    {
+      "date": "2026-08-13",
+      "clones": 197,
+      "uniqueCloners": 54
+    },
+    {
+      "date": "2026-08-14",
+      "clones": 146,
+      "uniqueCloners": 37
+    },
+    {
+      "date": "2026-08-15",
+      "clones": 152,
+      "uniqueCloners": 45
+    },
+    {
+      "date": "2026-08-16",
+      "clones": 183,
+      "uniqueCloners": 41
+    },
+    {
+      "date": "2026-08-17",
+      "clones": 153,
+      "uniqueCloners": 36
+    },
+    {
+      "date": "2026-08-18",
+      "clones": 172,
+      "uniqueCloners": 46
+    },
+    {
+      "date": "2026-08-19",
+      "clones": 159,
+      "uniqueCloners": 33
+    },
+    {
+      "date": "2026-08-20",
+      "clones": 142,
+      "uniqueCloners": 35
+    },
+    {
+      "date": "2026-08-21",
+      "clones": 155,
+      "uniqueCloners": 41
+    },
+    {
+      "date": "2026-08-22",
+      "clones": 153,
+      "uniqueCloners": 40
+    },
+    {
+      "date": "2026-08-23",
+      "clones": 180,
+      "uniqueCloners": 36
+    },
+    {
+      "date": "2026-08-24",
+      "clones": 144,
+      "uniqueCloners": 32
+    },
+    {
+      "date": "2026-08-25",
+      "clones": 147,
+      "uniqueCloners": 32
+    },
+    {
+      "date": "2026-08-26",
+      "clones": 144,
+      "uniqueCloners": 34
+    },
+    {
+      "date": "2026-08-27",
+      "clones": 144,
+      "uniqueCloners": 39
+    },
+    {
+      "date": "2026-08-28",
+      "clones": 141,
+      "uniqueCloners": 35
+    },
+    {
+      "date": "2026-08-29",
+      "clones": 143,
+      "uniqueCloners": 30
+    },
+    {
+      "date": "2026-08-30",
+      "clones": 158,
+      "uniqueCloners": 36
+    },
+    {
+      "date": "2026-08-31",
+      "clones": 650,
+      "uniqueCloners": 259
+    },
+    {
+      "date": "2026-09-01",
+      "clones": 143,
+      "uniqueCloners": 65
+    },
+    {
+      "date": "2026-09-02",
+      "clones": 149,
+      "uniqueCloners": 54
+    },
+    {
+      "date": "2026-09-03",
+      "clones": 131,
+      "uniqueCloners": 41
+    },
+    {
+      "date": "2026-09-04",
+      "clones": 149,
+      "uniqueCloners": 47
+    },
+    {
+      "date": "2026-09-05",
+      "clones": 144,
+      "uniqueCloners": 47
+    }
+  ]
+}
